@@ -24,9 +24,9 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::982081077491:role/GitHubECRPush_oid4vci-issuer
           aws-region: ${{ env.AWS_REGION }}
@@ -35,7 +35,7 @@ jobs:
         id: ecr-login
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
