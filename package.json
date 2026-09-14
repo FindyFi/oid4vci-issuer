@@ -1,0 +1,26 @@
+{
+  "name": "oid4vci-issuer",
+  "version": "0.0.1",
+  "description": "A minimal OID4VCI (OpenID for Verifiable Credential Issuance) issuer service. Content-agnostic: takes an already-built unsigned Verifiable Credential from a coordinator, hands the pre-authorized-code/token/credential protocol dance with the wallet, and delegates signing to a digitalcredentials/signing-service instance.",
+  "homepage": "https://github.com/FindyFi/oid4vci-issuer#readme",
+  "bugs": {
+    "url": "https://github.com/FindyFi/oid4vci-issuer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FindyFi/oid4vci-issuer.git"
+  },
+  "license": "Apache-2.0",
+  "author": "Samuel Rinnetmäki <samuel@iki.fi>",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jose": "^5.9.6"
+  }
+}
