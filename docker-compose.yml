@@ -1,0 +1,37 @@
+# Standalone local stack for oid4vci-issuer: the service plus the
+# signing-service instance it delegates signing to. Nothing here depends on
+# a sibling checkout - `git clone && docker compose up` is enough.
+services:
+  # https://github.com/digitalcredentials/signing-service, pinned to the same
+  # published image the deployed environments run rather than built from its
+  # git HEAD, so local behaviour matches.
+  signing-service:
+    image: digitalcredentials/signing-service:1.1.0
+    ports:
+      - '4006:4006'
+    environment:
+      PORT: 4006
+      # One seed per "tenant"/instance; TENANT_SEED_TEST is what makes the
+      # "test" instance SIGNING_SERVICE_INSTANCE points at exist. "generate"
+      # mints a fresh dev key on every start - fine for local dev, not for
+      # anything that needs stable credential keys.
+      TENANT_SEED_TEST: generate
+
+  issuer:
+    build:
+      context: .
+    ports:
+      - '4007:4007'
+    environment:
+      PORT: 4007
+      # Local dev only. Real wallet interop needs a public HTTPS hostname
+      # here - wallets cannot resolve .well-known discovery against
+      # localhost. See README.
+      CREDENTIAL_ISSUER: http://localhost:4007
+      CREDENTIAL_CONFIGURATIONS_SUPPORTED: '{"OpenBadgeCredential":{"format":"ldp_vc","credential_definition":{"@context":["https://www.w3.org/2018/credentials/v1","https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"],"type":["VerifiableCredential","OpenBadgeCredential"]},"proof_types_supported":{"jwt":{"proof_signing_alg_values_supported":["ES256"]}}}}'
+      SIGNING_SERVICE_URL: http://signing-service:4006
+      SIGNING_SERVICE_INSTANCE: test
+      SIGNING_SERVICE_SUITE: ed25519
+      COORDINATOR_TOKEN: dev-coordinator-token-change-me
+    depends_on:
+      - signing-service
