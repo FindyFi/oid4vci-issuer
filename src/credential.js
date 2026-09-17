@@ -7,7 +7,12 @@ import { consumeNonce } from './nonce.js'
 // (opintotodiste, or any other coordinator, wires it to its own
 // signing-service instance) - this module only handles token/proof/offer
 // bookkeeping, never the credential content itself.
-export function createCredentialHandler({ store, credentialIssuer, signCredential }) {
+export function createCredentialHandler({
+  store,
+  credentialIssuer,
+  signCredential,
+  credentialConfigurationsSupported = {},
+}) {
   return async function credentialHandler(req, res) {
     const auth = req.get('authorization') || ''
     const [, accessToken] = auth.match(/^Bearer (.+)$/) || []
@@ -40,9 +45,21 @@ export function createCredentialHandler({ store, credentialIssuer, signCredentia
       })
     }
 
+    // The algorithms accepted here are the ones this offer's credential
+    // configuration advertises in issuer metadata, so a wallet is held to
+    // exactly what it was told - and widening the metadata is the only way
+    // to widen what gets accepted.
+    const allowedAlgorithms =
+      credentialConfigurationsSupported[offer.credentialConfigurationId]?.proof_types_supported?.jwt
+        ?.proof_signing_alg_values_supported
+
     let verified
     try {
-      verified = await verifyProof({ proofJwt: jwtProofs[0], expectedAudience: credentialIssuer })
+      verified = await verifyProof({
+        proofJwt: jwtProofs[0],
+        expectedAudience: credentialIssuer,
+        allowedAlgorithms,
+      })
     } catch (err) {
       return res.status(400).json({ error: 'invalid_proof', error_description: err.message })
     }
