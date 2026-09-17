@@ -35,6 +35,7 @@ const nonceHandler = createNonceHandler({ store })
 const credentialHandler = createCredentialHandler({
   store,
   credentialIssuer: CREDENTIAL_ISSUER,
+  credentialConfigurationsSupported,
   signCredential: (vc) =>
     callSigningService(vc, {
       baseUrl: process.env.SIGNING_SERVICE_URL,
