@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The workflow only reads the repository. Publishing images happens outside
+# it, so nothing here needs id-token or registry credentials.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The full range package.json's "engines" claims to support.
+        node-version: [20, 22, 24]
+
+    name: Node ${{ matrix.node-version }}
+
+    steps:
+      # Actions are pinned to a commit SHA rather than a moving tag;
+      # Dependabot (see .github/dependabot.yml) proposes the bumps.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+
+  # What gets deployed is built from this repository's Dockerfile, so a
+  # Dockerfile that cannot build is a broken release even when the test suite
+  # is green.
+  image:
+    runs-on: ubuntu-latest
+    name: Docker build
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build -t oid4vci-issuer:ci .
