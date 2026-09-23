@@ -5,7 +5,7 @@ import { createOfferHandlers } from './src/offers.js'
 import { createTokenHandler } from './src/token.js'
 import { createNonceHandler } from './src/nonce.js'
 import { createCredentialHandler } from './src/credential.js'
-import { createMetadataHandler } from './src/metadata.js'
+import { createAuthorizationServerMetadataHandler, createMetadataHandler } from './src/metadata.js'
 import { callSigningService } from './src/signing.js'
 import { requireCoordinatorToken } from './src/auth.js'
 
@@ -47,12 +47,19 @@ const metadataHandler = createMetadataHandler({
   credentialIssuer: CREDENTIAL_ISSUER,
   credentialConfigurationsSupported,
 })
+const authorizationServerMetadataHandler = createAuthorizationServerMetadataHandler({
+  credentialIssuer: CREDENTIAL_ISSUER,
+})
 const coordinatorAuth = requireCoordinatorToken(process.env.COORDINATOR_TOKEN)
 
 app.get('/healthz', (req, res) => res.sendStatus(200))
 
 // Wallet-facing (public, per spec)
 app.get('/.well-known/openid-credential-issuer', metadataHandler)
+// Both paths serve the same RFC 8414 document: wallets look for the first,
+// and fall back to the second.
+app.get('/.well-known/oauth-authorization-server', authorizationServerMetadataHandler)
+app.get('/.well-known/openid-configuration', authorizationServerMetadataHandler)
 app.get('/instance/:tenant/offers/:code', getOffer)
 app.get('/instance/:tenant/offers/:code/status', getOfferStatus)
 app.post('/token', tokenHandler)
