@@ -121,6 +121,31 @@ describe('service basics', () => {
     assert.ok(metadata.credential_configurations_supported[CREDENTIAL_CONFIGURATION_ID])
   })
 
+  // A wallet does not read the token endpoint out of the credential issuer
+  // metadata. With no `authorization_servers` there, OID4VCI 1.0 Section
+  // 11.2.3 makes the credential issuer its own authorization server, whose
+  // metadata is fetched per RFC 8414. Procivis aborted the invitation on the
+  // 404 this used to return, before ever calling /token - so a green
+  // end-to-end test here did not mean a wallet could complete the flow.
+  for (const path of ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration']) {
+    test(`publishes authorization server metadata at ${path}`, async () => {
+      const res = await fetch(url(path))
+      const metadata = await res.json()
+
+      assert.equal(res.status, 200)
+      assert.equal(metadata.issuer, issuer.credentialIssuer)
+      assert.equal(metadata.token_endpoint, `${issuer.credentialIssuer}/token`)
+      assert.deepEqual(metadata.grant_types_supported, ['urn:ietf:params:oauth:grant-type:pre-authorized_code'])
+    })
+  }
+
+  test('does not advertise a separate authorization server', async () => {
+    // If this ever gains an `authorization_servers` entry, the discovery
+    // path above stops applying and a wallet will look elsewhere.
+    const metadata = await (await fetch(url('/.well-known/openid-credential-issuer'))).json()
+    assert.equal(metadata.authorization_servers, undefined)
+  })
+
   test('refuses to start without CREDENTIAL_ISSUER', async () => {
     const { code, stderr } = await startIssuerExpectingFailure({})
     assert.notEqual(code, 0)
