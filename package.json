@@ -16,11 +16,14 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jose": "^5.9.6"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
