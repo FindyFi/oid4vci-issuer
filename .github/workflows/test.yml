@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         # The full range package.json's "engines" claims to support.
-        node-version: [20, 22, 24]
+        node-version: [22, 24, 26]
 
     name: Node ${{ matrix.node-version }}
 
