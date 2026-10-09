@@ -21,7 +21,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "jose": "^5.9.6"
+    "jose": "^6.2.12"
   },
   "engines": {
     "node": ">=20"
