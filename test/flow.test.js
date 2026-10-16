@@ -284,8 +284,10 @@ describe('credential issuance', () => {
     const { res, body } = await requestCredential({ accessToken: token.access_token, proofJwt })
 
     assert.equal(res.status, 200)
-    assert.equal(body.credential.issuer, UNSIGNED_CREDENTIAL.issuer)
-    assert.ok(body.credential.proof, 'expected the signing service to have added a proof')
+    assert.equal(body.credentials.length, 1)
+    const [{ credential }] = body.credentials
+    assert.equal(credential.issuer, UNSIGNED_CREDENTIAL.issuer)
+    assert.ok(credential.proof, 'expected the signing service to have added a proof')
 
     // The issuer must forward exactly what the coordinator handed it.
     const signed = issuer.signingService.requests.at(-1)
