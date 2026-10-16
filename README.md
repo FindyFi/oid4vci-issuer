@@ -152,6 +152,10 @@ Wallet-facing (public):
 
 - `GET /.well-known/openid-credential-issuer` — issuer metadata, including
   `nonce_endpoint`.
+- `GET /.well-known/oauth-authorization-server` — OAuth 2.0 Authorization
+  Server Metadata (RFC 8414). This service is its own authorization server, so
+  1.0 wallets find `token_endpoint` here. It advertises only the
+  pre-authorized code grant, with anonymous access.
 - `GET /.well-known/jwt-vc-issuer` — only when SD-JWT signing is configured.
   JWT VC Issuer Metadata: `{ "issuer": <issuer URL>, "jwks": { "keys": [<public JWK with kid, alg, use: "sig">] } }`.
   Verifiers use it to find the key for an SD-JWT's `iss` and `kid`.
