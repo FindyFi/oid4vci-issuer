@@ -75,7 +75,10 @@ export function createCredentialHandler({
 
     try {
       const credential = await signCredential(offer.unsignedCredential)
-      res.json({ credential })
+      // Section 8.3: immediate issuance is a 200 with a `credentials` array of
+      // objects, each holding one `credential`; there is no top-level `credential`.
+      res.set('Cache-Control', 'no-store')
+      res.json({ credentials: [{ credential }] })
     } catch (err) {
       res.status(500).json({ error: 'issuance_failed', error_description: err.message })
     }

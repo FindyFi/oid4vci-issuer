@@ -126,8 +126,14 @@ Wallet-facing (public):
   the proof JWT (signature, `aud`, `typ: openid4vci-proof+jwt`, and that its
   algorithm is one the credential configuration advertises) and that its
   `nonce` claim is a real, unused value from `/nonce`, calls signing-service,
-  returns `{ credential }` (singular, for the single-credential case this
-  service supports).
+  and returns `200 { "credentials": [{ "credential": <signed VC> }] }` (Section
+  8.3; the old top-level `credential` is gone in 1.0 final). There is always
+  exactly one element, and the response is `Cache-Control: no-store`.
+
+## Tests
+
+`npm test` runs `node --test`. `test/issuance.test.js` starts the app on a random
+port with a stubbed signer and walks through the whole flow with a fake wallet.
 
 Operational:
 
