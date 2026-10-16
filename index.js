@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { createApp } from './src/app.js'
 import { callSigningService } from './src/signing.js'
-import { loadSigningKey } from './src/keys.js'
+import { loadPreviousKeys, loadSigningKey } from './src/keys.js'
 import { loadX5c } from './src/x5c.js'
 import { resolveVctIntegrity } from './src/vct-integrity.js'
 
@@ -38,6 +38,7 @@ if (process.env.SD_JWT_SIGNING_KEY) {
   sdJwt = {
     issuer: process.env.SD_JWT_ISSUER || CREDENTIAL_ISSUER,
     key: await loadSigningKey(process.env.SD_JWT_SIGNING_KEY),
+    previousKeys: await loadPreviousKeys(process.env.SD_JWT_PREVIOUS_KEYS),
   }
   if (process.env.SD_JWT_X5C) {
     if (process.env.SD_JWT_X5C === 'generate') {
