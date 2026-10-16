@@ -69,6 +69,7 @@ See `.env.example`.
 | `CREDENTIAL_ISSUER` | always | This service's own public HTTPS base URL. |
 | `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | always | JSON map of configuration id → OID4VCI configuration. Each entry should declare `proof_types_supported`, since that's what makes 1.0 require a proof, and therefore the Nonce Endpoint, for that credential type. |
 | `SD_JWT_SIGNING_KEY` | if a configuration has format `vc+sd-jwt` | A private EC P-256 JWK as JSON, or `generate` (dev only: a fresh key on every start, so earlier credentials stop verifying). The `kid` is always the key's RFC 7638 thumbprint. |
+| `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. |
 | `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
 | `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
 | `COORDINATOR_TOKEN` | beyond local dev | Shared secret for offer creation. |

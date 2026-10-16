@@ -57,8 +57,9 @@ export function checkSdJwtCredential(credential, configuration, { issuer }) {
 // Returns a compact SD-JWT, `<jws>~`. The payload is the credential
 // unchanged plus `iss`, `iat`, `cnf` (when binding) and, for a vc+sd-jwt
 // with `validFrom`, `nbf`. With no disclosure frame the library adds
-// neither `_sd` nor `_sd_alg`.
-export async function signSdJwt(credential, configuration, { issuer, key }, { holderJwk } = {}) {
+// neither `_sd` nor `_sd_alg`. The header carries `x5c` when a certificate
+// chain is configured (see src/x5c.js).
+export async function signSdJwt(credential, configuration, { issuer, key, x5c }, { holderJwk } = {}) {
   const sdjwt = new SDJwtInstance({
     signer: await ES256.getSigner(key.privateJwk),
     signAlg: ES256.alg,
@@ -73,7 +74,8 @@ export async function signSdJwt(credential, configuration, { issuer, key }, { ho
     if (!holderJwk) throw new Error('Holder binding needs the public key from the proof JWT.')
     payload.cnf = { jwk: publicJwk(holderJwk) }
   }
-  return sdjwt.issue(payload, undefined, { header: { typ: configuration.format, kid: key.kid } })
+  const header = { typ: configuration.format, kid: key.kid, ...(x5c ? { x5c } : {}) }
+  return sdjwt.issue(payload, undefined, { header })
 }
 
 // Only the public members of the wallet's key, in case a wallet sends extras.
