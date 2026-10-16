@@ -134,6 +134,18 @@ test('a replayed nonce is rejected', async () => {
   assert.equal((await res.json()).error, 'invalid_nonce')
 })
 
+test('a pre-1.0 singular proof is accepted', async () => {
+  const { body: created } = await createOffer()
+  const { token, proof } = await redeem(created)
+  const res = await fetch(`${base}/credential`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token.access_token}` },
+    body: JSON.stringify({ credential_configuration_id: CONFIG_ID, proof: { proof_type: 'jwt', jwt: proof } }),
+  })
+  assert.equal(res.status, 200)
+  assert.ok((await res.json()).credentials[0].credential)
+})
+
 test('a credential_configuration_id mismatch is rejected', async () => {
   const { body: created } = await createOffer({ credentialConfigurationId: CONFIG_ID, unsignedCredential })
   const { token, proof } = await redeem(created)

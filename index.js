@@ -45,6 +45,7 @@ const app = createApp({
   coordinatorToken: process.env.COORDINATOR_TOKEN,
   signLdpVc,
   sdJwt,
+  logRequests: process.env.LOG_REQUESTS === '1',
 })
 
 app.listen(PORT, () => {

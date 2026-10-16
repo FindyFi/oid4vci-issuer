@@ -72,6 +72,7 @@ See `.env.example`.
 | `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
 | `COORDINATOR_TOKEN` | beyond local dev | Shared secret for offer creation. |
 | `PORT` | no | Defaults to 4007. |
+| `LOG_REQUESTS` | no | `1` logs one line per request: the body's shape (no values, only proof JWT headers), the error returned, and the user agent. For wallet interop debugging. |
 
 The service refuses to start if a configuration's format is unsupported, or
 if what that format needs isn't configured.

@@ -15,7 +15,7 @@ import { createJwtVcIssuerHandler } from './jwt-vc-issuer.js'
 // vars. `signLdpVc` signs `ldp_vc` credentials (signing-service); `sdJwt`
 // ({ issuer, key }) signs SD-JWT credentials with this service's own key.
 // Throws if a configuration's format can't be served with what was given.
-export function createApp({ credentialIssuer, credentialConfigurationsSupported, coordinatorToken, signLdpVc, sdJwt, store = createStore() }) {
+export function createApp({ credentialIssuer, credentialConfigurationsSupported, coordinatorToken, signLdpVc, sdJwt, store = createStore(), logRequests = false }) {
   if (sdJwt) {
     let url
     try {
@@ -32,6 +32,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   const signers = createSigners({ credentialConfigurationsSupported, signLdpVc, sdJwt })
 
   const app = express()
+  if (logRequests) app.use(requestLogger)
   app.use(express.json())
   app.use(express.urlencoded({ extended: false })) // the token endpoint is a plain OAuth2 form post
 
@@ -68,4 +69,33 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   app.post('/instance/:tenant/offers', coordinatorAuth, createOffer)
 
   return app
+}
+
+// Interop debugging aid (LOG_REQUESTS=1): one line per request with the
+// request body's shape and, for errors, the JSON error the client got.
+// Values are left out; only the proof JWT's protected header is shown.
+function requestLogger(req, res, next) {
+  let errorBody
+  const json = res.json.bind(res)
+  res.json = (body) => {
+    if (res.statusCode >= 400) errorBody = body
+    return json(body)
+  }
+  res.on('finish', () => {
+    const shape = req.body && Object.keys(req.body).length ? ` body=${JSON.stringify(describe(req.body))}` : ''
+    const error = errorBody ? ` error=${JSON.stringify(errorBody)}` : ''
+    console.log(`${req.method} ${req.originalUrl} -> ${res.statusCode}${shape}${error} ua=${JSON.stringify(req.get('user-agent') || '')}`)
+  })
+  next()
+}
+
+function describe(value) {
+  if (Array.isArray(value)) return value.map(describe)
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, describe(v)]))
+  if (typeof value === 'string' && value.split('.').length === 3) {
+    try {
+      return { jwtHeader: JSON.parse(Buffer.from(value.split('.')[0], 'base64url')) }
+    } catch {}
+  }
+  return typeof value
 }
