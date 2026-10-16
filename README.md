@@ -114,6 +114,8 @@ redeploy (the key and `kid` stay the same).
 rotation is a new key:
 
 1. Create the new KMS key, and make a certificate for it with the script.
+   Allow the task's role to use both keys, so the running service can still
+   sign while the new one starts.
 2. Add the **current** key's public JWK (from `/.well-known/jwt-vc-issuer`)
    to `SD_JWT_PREVIOUS_KEYS`.
 3. Point `SD_JWT_SIGNING_KEY` at the new key, set `SD_JWT_X5C` to the new
