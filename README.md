@@ -62,7 +62,15 @@ keep are the two HTTP interfaces above.
 
 ## Configuration
 
-See `.env.example`.
+See `.env.example`. It is also the machine-readable list of every variable
+the service reads: the comment line directly above each variable is a tag,
+`# @env required` or `# @env optional`, optionally followed by ` secret`
+(take the value from a secret store, not plain task environment). With
+`NODE_ENV=production` (the Docker image sets it) the service refuses to start
+and names every missing required variable. A test keeps the list in step with
+the code, and deployment config should follow it. `SIGNING_SERVICE_*` are
+optional only because they matter just for `ldp_vc`; set all three wherever
+`ldp_vc` is offered.
 
 | Variable | Needed | Meaning |
 |----------|--------|---------|
@@ -73,7 +81,7 @@ See `.env.example`.
 | `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. `scripts/self-signed-x5c.js` makes a stored one. |
 | `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
 | `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
-| `COORDINATOR_TOKEN` | beyond local dev | Shared secret for offer creation. |
+| `COORDINATOR_TOKEN` | production (required, secret) | Shared secret for offer creation. |
 | `PORT` | no | Defaults to 4007. |
 | `LOG_REQUESTS` | no | `1` logs one line per request: the body's shape (no values, only proof JWT headers), the error returned, and the user agent. For wallet interop debugging. |
 
