@@ -158,6 +158,25 @@ test('issuer metadata advertises the endpoints', async () => {
   assert.ok(meta.credential_configurations_supported[CONFIG_ID])
 })
 
+test('authorization server metadata names the token endpoint and the pre-authorized grant', async () => {
+  const meta = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json()
+  assert.equal(meta.issuer, ISSUER)
+  assert.equal(meta.token_endpoint, `${ISSUER}/token`)
+  assert.deepEqual(meta.grant_types_supported, [GRANT_TYPE])
+  assert.equal(meta['pre-authorized_grant_anonymous_access_supported'], true)
+})
+
+// The discovery fallback wallets try after oauth-authorization-server. It is
+// RFC 8414 metadata, not an OpenID Federation Entity Configuration.
+test('openid-configuration serves the same authorization server metadata', async () => {
+  const res = await fetch(`${base}/.well-known/openid-configuration`)
+  assert.equal(res.status, 200)
+  const fallback = await res.json()
+  const primary = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json()
+  assert.deepEqual(fallback, primary)
+  assert.equal(fallback.token_endpoint, `${ISSUER}/token`)
+})
+
 const vcdm2Credential = {
   '@context': ['https://www.w3.org/ns/credentials/v2', 'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json'],
   id: 'urn:uuid:5f0c2a4e-0a8e-4c55-9a43-2f6b0e1c7d11',
