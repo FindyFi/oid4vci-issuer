@@ -8,6 +8,7 @@ import { createAuthorizationServerMetadataHandler, createMetadataHandler } from 
 import { requireCoordinatorToken } from './auth.js'
 import { createSigners } from './signers.js'
 import { createJwtVcIssuerHandler } from './jwt-vc-issuer.js'
+import { DC_SD_JWT, typeMetadata } from './sdjwt.js'
 
 // Builds the Express app from explicit config, without reading the
 // environment or listening on a port, so tests can start it on a random port
@@ -58,6 +59,14 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   app.get('/.well-known/oauth-authorization-server', authorizationServerMetadataHandler)
   app.get('/.well-known/openid-configuration', authorizationServerMetadataHandler)
   if (sdJwt) app.get('/.well-known/jwt-vc-issuer', createJwtVcIssuerHandler(sdJwt))
+  // SD-JWT VC Type Metadata at each dc+sd-jwt configuration's vct URL, when
+  // that URL is under this service's origin.
+  for (const configuration of Object.values(credentialConfigurationsSupported)) {
+    if (configuration.format !== DC_SD_JWT || !URL.canParse(configuration.vct)) continue
+    const vct = new URL(configuration.vct)
+    if (vct.origin !== new URL(credentialIssuer).origin) continue
+    app.get(vct.pathname, (req, res) => res.json(typeMetadata(configuration)))
+  }
   app.get('/instance/:tenant/offers/:code', getOffer)
   app.get('/instance/:tenant/offers/:code/status', getOfferStatus)
   app.post('/token', tokenHandler)

@@ -81,7 +81,7 @@ export function createCredentialHandler({
     store.delete(tokenKey(accessToken))
 
     try {
-      const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential)
+      const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential, { holderJwk: verified.header.jwk })
       // Section 8.3: immediate issuance is a 200 with a `credentials` array of
       // objects, each holding one `credential`; there is no top-level `credential`.
       res.set('Cache-Control', 'no-store')

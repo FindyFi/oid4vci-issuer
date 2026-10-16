@@ -50,3 +50,8 @@ test('loadSigningKey rejects anything but a private P-256 JWK', async () => {
     await assert.rejects(loadSigningKey(value), /SD_JWT_SIGNING_KEY/)
   }
 })
+
+test('dc+sd-jwt without a vct fails at startup', async () => {
+  const sdJwt = { issuer: base.credentialIssuer, key: await loadSigningKey('generate') }
+  assert.throws(() => createApp({ ...base, credentialConfigurationsSupported: { A: { format: 'dc+sd-jwt' } }, sdJwt }), /needs a vct/)
+})

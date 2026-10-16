@@ -9,6 +9,14 @@ import { loadSigningKey } from '../src/keys.js'
 const ISSUER = 'https://issuer.example'
 const CONFIG_ID = 'OpenBadgeCredential'
 const SD_JWT_CONFIG_ID = 'OpenBadgeCredentialSdJwt'
+const DC_CONFIG_ID = 'OpenBadgeCredentialSdJwtVc'
+const VCT = `${ISSUER}/vct/OpenBadgeCredential`
+const DC_CONFIG = {
+  format: 'dc+sd-jwt',
+  vct: VCT,
+  cryptographic_binding_methods_supported: ['jwk'],
+  credential_metadata: { display: [{ name: 'Opintosuoritus', locale: 'fi', description: 'Open Badge' }, { name: 'Study record', locale: 'en' }] },
+}
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
 const COORDINATOR_TOKEN = 'secret'
 
@@ -19,7 +27,7 @@ const signed = []
 before(async () => {
   const app = createApp({
     credentialIssuer: ISSUER,
-    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' }, [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt' } },
+    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' }, [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt' }, [DC_CONFIG_ID]: DC_CONFIG },
     coordinatorToken: COORDINATOR_TOKEN,
     // Stub signing-service: records what it was asked to sign and returns a fake proof.
     signLdpVc: async (vc) => {
@@ -283,3 +291,49 @@ test('an offer for an unknown credential configuration is rejected with 400', as
   const { res } = await createOffer({ credentialConfigurationId: 'Nope', unsignedCredential })
   assert.equal(res.status, 400)
 })
+
+const dcClaims = { vct: VCT, sub: 'urn:x:subject', awarded_on: '2024-06-01', achievement: { id: 'urn:x:a', name: 'A' } }
+
+async function issueDc(claims = dcClaims) {
+  const { res, body: created } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims })
+  assert.equal(res.status, 200, JSON.stringify(created))
+  const { token, proof } = await redeem(created)
+  const credRes = await credentialRequest(token.access_token, proof, DC_CONFIG_ID)
+  assert.equal(credRes.status, 200)
+  return { sdJwt: (await credRes.json()).credentials[0].credential, proof }
+}
+
+test('dc+sd-jwt: flat claims plus iss, iat and cnf with the proof key, no disclosures', async () => {
+  const { sdJwt, proof } = await issueDc()
+  assert.match(sdJwt, /^[\w-]+\.[\w-]+\.[\w-]+~$/)
+  const { jwks } = await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()
+  const { payload, protectedHeader } = await jwtVerify(sdJwt.slice(0, -1), createLocalJWKSet(jwks), { issuer: ISSUER, typ: 'dc+sd-jwt' })
+  assert.deepEqual(protectedHeader, { typ: 'dc+sd-jwt', kid: jwks.keys[0].kid, alg: 'ES256' })
+  const { iss, iat, cnf, ...claims } = payload
+  assert.deepEqual(claims, dcClaims)
+  assert.deepEqual(cnf, { jwk: decodeProtectedHeader(proof).jwk })
+  for (const claim of ['nbf', '_sd', '_sd_alg', '@context', 'credentialSubject']) assert.equal(claim in payload, false, claim)
+})
+
+test('dc+sd-jwt: a wrong vct or an issuer-owned claim is rejected with 400', async () => {
+  for (const claims of [{ ...dcClaims, vct: 'https://other.example/vct' }, { ...dcClaims, iss: ISSUER }, { ...dcClaims, cnf: {} }]) {
+    const { res } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims })
+    assert.equal(res.status, 400)
+  }
+})
+
+test('dc+sd-jwt: type metadata is served at the vct URL', async () => {
+  const meta = await (await fetch(`${base}/vct/OpenBadgeCredential`)).json()
+  assert.equal(meta.vct, VCT)
+  assert.equal(meta.name, 'Opintosuoritus')
+  assert.deepEqual(meta.display[1], { locale: 'en', lang: 'en', name: 'Study record' })
+})
+
+test('vc+sd-jwt binds the holder only when its configuration lists jwk', async () => {
+  const sdJwt = await issueSdJwt()
+  assert.equal('cnf' in decodeJwtPayload(sdJwt), false)
+})
+
+function decodeJwtPayload(sdJwt) {
+  return JSON.parse(Buffer.from(sdJwt.split('.')[1], 'base64url'))
+}

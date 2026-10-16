@@ -17,9 +17,8 @@ export const DEFAULT_PROOF_SIGNING_ALGORITHMS = ['ES256', 'ES384', 'ES512', 'EdD
 // `allowedAlgorithms` should come from the credential configuration's
 // proof_types_supported.jwt.proof_signing_alg_values_supported, so that what
 // the metadata advertises and what this accepts cannot drift apart.
-// The verified key is returned but - per this service's current
-// bearer-credential design - never used for subject/holder binding; a
-// future opt-in binding step would use `header.jwk` from here.
+// The verified key (`header.jwk`) becomes the credential's `cnf.jwk` when
+// the configuration binds the holder (see src/sdjwt.js).
 export async function verifyProof({ proofJwt, expectedAudience, allowedAlgorithms }) {
   if (!proofJwt) {
     throw new Error('Missing proof JWT.')
