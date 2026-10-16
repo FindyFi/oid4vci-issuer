@@ -3,6 +3,7 @@ import { createApp } from './src/app.js'
 import { callSigningService } from './src/signing.js'
 import { loadSigningKey } from './src/keys.js'
 import { loadX5c } from './src/x5c.js'
+import { resolveVctIntegrity } from './src/vct-integrity.js'
 
 const PORT = process.env.PORT || 4007
 const CREDENTIAL_ISSUER = process.env.CREDENTIAL_ISSUER
@@ -48,7 +49,7 @@ if (process.env.SD_JWT_SIGNING_KEY) {
 
 const app = createApp({
   credentialIssuer: CREDENTIAL_ISSUER,
-  credentialConfigurationsSupported,
+  credentialConfigurationsSupported: await resolveVctIntegrity(credentialConfigurationsSupported),
   coordinatorToken: process.env.COORDINATOR_TOKEN,
   signLdpVc,
   sdJwt,

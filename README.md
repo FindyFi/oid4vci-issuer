@@ -100,6 +100,14 @@ there, built from `credential_metadata.display`:
 }
 ```
 
+At startup, this service fetches each `dc+sd-jwt` configuration's `vct` and
+computes its `vct#integrity` (`sha256-<base64>` of the exact bytes, SRI); the
+issued credentials carry it. To pin it (production), add `"vct#integrity"` to
+the configuration: if the fetched hash differs, the service refuses to start,
+and if the fetch fails it starts with the pinned value and logs a warning.
+Unpinned (dev), a failed fetch means credentials are issued without
+`vct#integrity`, with a warning. Coordinators must not send `vct#integrity`.
+
 A VCDM 2.0 SD-JWT configuration looks like this:
 
 ```json
@@ -166,7 +174,7 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
   (`issuer`, or `issuer.id`) isn't exactly the SD-JWT issuer URL, or if
   `validFrom` isn't a date-time. For a `dc+sd-jwt` configuration it returns
   400 if `vct` isn't the configuration's, or if the claims contain any of
-  `iss`, `iat`, `nbf`, `exp`, `cnf`, `_sd` or `_sd_alg`. Nothing is
+  `iss`, `iat`, `nbf`, `exp`, `cnf`, `_sd`, `_sd_alg` or `vct#integrity`. Nothing is
   overwritten silently.
 
 Wallet-facing (public):

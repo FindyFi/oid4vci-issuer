@@ -13,7 +13,7 @@ export const DC_SD_JWT = 'dc+sd-jwt'
 export const SD_JWT_FORMATS = [VC_SD_JWT, DC_SD_JWT]
 
 // Claims this service sets itself; a coordinator must not supply them.
-const RESERVED_DC_CLAIMS = ['iss', 'iat', 'nbf', 'exp', 'cnf', '_sd', '_sd_alg']
+const RESERVED_DC_CLAIMS = ['iss', 'iat', 'nbf', 'exp', 'cnf', '_sd', '_sd_alg', 'vct#integrity']
 
 function issuerOf(vc) {
   return typeof vc.issuer === 'string' ? vc.issuer : vc.issuer?.id
@@ -55,7 +55,8 @@ export function checkSdJwtCredential(credential, configuration, { issuer }) {
 }
 
 // Returns a compact SD-JWT, `<jws>~`. The payload is the credential
-// unchanged plus `iss`, `iat`, `cnf` (when binding) and, for a vc+sd-jwt
+// unchanged plus `iss`, `iat`, `cnf` (when binding), `vct#integrity` (from
+// the configuration, see src/vct-integrity.js) and, for a vc+sd-jwt
 // with `validFrom`, `nbf`. With no disclosure frame the library adds
 // neither `_sd` nor `_sd_alg`. The header carries `x5c` when a certificate
 // chain is configured (see src/x5c.js).
@@ -69,6 +70,9 @@ export async function signSdJwt(credential, configuration, { issuer, key, x5c },
   const payload = { ...credential, iss: issuer, iat: Math.floor(Date.now() / 1000) }
   if (configuration.format === VC_SD_JWT && credential.validFrom !== undefined) {
     payload.nbf = Math.floor(Date.parse(credential.validFrom) / 1000)
+  }
+  if (configuration.format === DC_SD_JWT && configuration['vct#integrity']) {
+    payload['vct#integrity'] = configuration['vct#integrity']
   }
   if (bindsHolder(configuration)) {
     if (!holderJwk) throw new Error('Holder binding needs the public key from the proof JWT.')
