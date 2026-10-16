@@ -33,5 +33,9 @@ services:
       SIGNING_SERVICE_INSTANCE: test
       SIGNING_SERVICE_SUITE: ed25519
       COORDINATOR_TOKEN: dev-coordinator-token-change-me
+      # Required by .env.example's manifest, so the production image refuses
+      # to start without it. "generate" mints a fresh key on every start, like
+      # TENANT_SEED_TEST above: local dev only.
+      SD_JWT_SIGNING_KEY: generate
     depends_on:
       - signing-service
