@@ -8,16 +8,20 @@ export function offerKey(code) {
   return `offer:${code}`
 }
 
-// `unsignedCredential` is opaque to this service - a fully-built, unsigned
-// Verifiable Credential JSON supplied by the coordinator (opintotodiste,
-// issuer-coordinator, workflow-coordinator, ...). This service never
-// inspects its shape, only stores and later forwards it to signing-service.
-export function createOfferHandlers({ store, credentialIssuer }) {
+// `unsignedCredential` is a fully-built, unsigned Verifiable Credential JSON
+// supplied by the coordinator (opintotodiste, issuer-coordinator,
+// workflow-coordinator, ...). This service doesn't build or change its
+// content; `checkOffer` (see src/signers.js) only rejects what the
+// configuration's signer couldn't issue, such as an SD-JWT credential whose
+// issuer isn't this service's SD-JWT issuer URL.
+export function createOfferHandlers({ store, credentialIssuer, checkOffer }) {
   function createOffer(req, res) {
     const { credentialConfigurationId, unsignedCredential, txCode } = req.body || {}
     if (!credentialConfigurationId || !unsignedCredential) {
       return res.status(400).json({ error: 'credentialConfigurationId and unsignedCredential are required.' })
     }
+    const problem = checkOffer(credentialConfigurationId, unsignedCredential)
+    if (problem) return res.status(400).json({ error: problem })
 
     const code = randomUUID()
     const txCodeValue = txCode ? String(randomInt(10 ** (TX_CODE_LENGTH - 1), 10 ** TX_CODE_LENGTH)) : undefined

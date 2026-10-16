@@ -6,11 +6,16 @@ issuer service, implementing the pre-authorized-code flow only. It is
 deliberately content-agnostic: a coordinator (your own backend, or
 `digitalcredentials/issuer-coordinator` / `workflow-coordinator`) hands it an
 already-built, unsigned Verifiable Credential; this service runs the
-offer/token/nonce/proof protocol dance with a wallet, then delegates the
-actual cryptographic signing to a
-[`digitalcredentials/signing-service`](https://github.com/digitalcredentials/signing-service)
-instance. It never inspects credential content itself, so it works for any
-credential type/format signing-service can sign.
+offer/token/nonce/proof protocol dance with a wallet, then signs it. How it
+signs depends on the credential configuration's `format`:
+
+| `format` | Signed by | Credential returned to the wallet |
+|----------|-----------|-----------------------------------|
+| `vc+sd-jwt` | this service, with its own ES256 key (`SD_JWT_SIGNING_KEY`) | a W3C VCDM 2.0 credential secured as an SD-JWT with no disclosures: `<jws>~` |
+| `ldp_vc` | a [`digitalcredentials/signing-service`](https://github.com/digitalcredentials/signing-service) instance | the JSON-LD credential with a Data Integrity `proof` |
+
+Any other format stops the service at startup. Apart from checking the
+SD-JWT issuer (see below), it never inspects or changes credential content.
 
 Run it the same way you'd run `signing-service` alongside a coordinator: as
 its own process/container, not imported as a library.
@@ -56,12 +61,40 @@ keep are the two HTTP interfaces above.
 
 ## Configuration
 
-See `.env.example`. Required: `CREDENTIAL_ISSUER` (this service's own public
-HTTPS base URL), `CREDENTIAL_CONFIGURATIONS_SUPPORTED` (JSON — each entry
-should declare `proof_types_supported`, since that's what makes 1.0 require a
-proof, and therefore the Nonce Endpoint, for that credential type), and
-`SIGNING_SERVICE_URL`/`SIGNING_SERVICE_INSTANCE` (where to forward signing).
-Set `COORDINATOR_TOKEN` in anything beyond local dev.
+See `.env.example`.
+
+| Variable | Needed | Meaning |
+|----------|--------|---------|
+| `CREDENTIAL_ISSUER` | always | This service's own public HTTPS base URL. |
+| `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | always | JSON map of configuration id → OID4VCI configuration. Each entry should declare `proof_types_supported`, since that's what makes 1.0 require a proof, and therefore the Nonce Endpoint, for that credential type. |
+| `SD_JWT_SIGNING_KEY` | if a configuration has format `vc+sd-jwt` | A private EC P-256 JWK as JSON, or `generate` (dev only: a fresh key on every start, so earlier credentials stop verifying). The `kid` is always the key's RFC 7638 thumbprint. |
+| `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
+| `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
+| `COORDINATOR_TOKEN` | beyond local dev | Shared secret for offer creation. |
+| `PORT` | no | Defaults to 4007. |
+
+The service refuses to start if a configuration's format is unsupported, or
+if what that format needs isn't configured.
+
+To make a key for `SD_JWT_SIGNING_KEY`:
+
+```sh
+node -e "import('jose').then(async j => console.log(JSON.stringify(await j.exportJWK((await j.generateKeyPair('ES256', { extractable: true })).privateKey))))"
+```
+
+An SD-JWT configuration looks like this:
+
+```json
+"OpenBadgeCredentialSdJwt": {
+  "format": "vc+sd-jwt",
+  "credential_definition": {
+    "@context": ["https://www.w3.org/ns/credentials/v2", "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"],
+    "type": ["VerifiableCredential", "OpenBadgeCredential"]
+  },
+  "credential_signing_alg_values_supported": ["ES256"],
+  "proof_types_supported": { "jwt": { "proof_signing_alg_values_supported": ["ES256"] } }
+}
+```
 
 The service refuses to start without `CREDENTIAL_ISSUER`, or with
 unparseable `CREDENTIAL_CONFIGURATIONS_SUPPORTED`, rather than coming up in a
@@ -98,6 +131,11 @@ and drives a full offer → token → nonce → proof → credential round-trip,
 it covers the same wiring the container does. It needs nothing running
 beforehand — no Docker, no network.
 
+`test/issuance.test.js` starts the app in-process on a random port with a
+stubbed signing-service and a generated SD-JWT key, and walks through the
+whole flow with a fake wallet. It verifies issued SD-JWTs against the
+published JWKS. `test/startup.test.js` covers configuration errors and key loading.
+
 ## Endpoints
 
 Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKEN`):
@@ -105,12 +143,18 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
 - `POST /instance/:tenant/offers` — body `{ credentialConfigurationId, unsignedCredential, txCode? }`.
   Returns `{ preAuthorizedCode, txCode, offerUri, expiresIn }`. `offerUri` is
   an `openid-credential-offer://` link, ready to render as a QR code or deep
-  link.
+  link. Returns 400 if `credentialConfigurationId` isn't configured. For a
+  `vc+sd-jwt` configuration it also returns 400 if the credential's issuer
+  (`issuer`, or `issuer.id`) isn't exactly the SD-JWT issuer URL, or if
+  `validFrom` isn't a date-time. The issuer is never overwritten silently.
 
 Wallet-facing (public):
 
 - `GET /.well-known/openid-credential-issuer` — issuer metadata, including
   `nonce_endpoint`.
+- `GET /.well-known/jwt-vc-issuer` — only when SD-JWT signing is configured.
+  JWT VC Issuer Metadata: `{ "issuer": <issuer URL>, "jwks": { "keys": [<public JWK with kid, alg, use: "sig">] } }`.
+  Verifiers use it to find the key for an SD-JWT's `iss` and `kid`.
 - `GET /instance/:tenant/offers/:code` — the hosted `credential_offer` JSON.
 - `GET /instance/:tenant/offers/:code/status` — `{ used: boolean }`, for a
   coordinator that wants to poll for pickup.
@@ -125,20 +169,29 @@ Wallet-facing (public):
   request (one offer = one credential instance, no batch issuance). Verifies
   the proof JWT (signature, `aud`, `typ: openid4vci-proof+jwt`, and that its
   algorithm is one the credential configuration advertises) and that its
-  `nonce` claim is a real, unused value from `/nonce`, calls signing-service,
-  and returns `200 { "credentials": [{ "credential": <signed VC> }] }` (Section
-  8.3; the old top-level `credential` is gone in 1.0 final). There is always
-  exactly one element, and the response is `Cache-Control: no-store`.
-
-## Tests
-
-`npm test` runs `node --test`. `test/issuance.test.js` starts the app on a random
-port with a stubbed signer and walks through the whole flow with a fake wallet.
+  `nonce` claim is a real, unused value from `/nonce`, signs the credential
+  (see the table above), and returns
+  `200 { "credentials": [{ "credential": <signed VC or SD-JWT string> }] }`
+  (Section 8.3; the old top-level `credential` is gone in 1.0 final). There is
+  always exactly one element, and the response is `Cache-Control: no-store`.
 
 Operational:
 
 - `GET /healthz` — what the container `HEALTHCHECK` and compose's
   `service_healthy` condition wait on.
+
+## The `vc+sd-jwt` credential
+
+- JOSE header: `{ "typ": "vc+sd-jwt", "kid": <JWK thumbprint>, "alg": "ES256" }`.
+- Payload: the unsigned VC exactly as the coordinator sent it, plus `iss` (the
+  SD-JWT issuer URL), `iat` (issuance time) and `nbf` (from `validFrom`, if present).
+- No disclosures, so no `_sd` or `_sd_alg`, and the compact form ends in a
+  single `~`. No `cnf`: the credential is not bound to the wallet's key.
+- All format-specific code is in `src/sdjwt.js`.
+
+Note that OID4VCI 1.0 final has no format identifier for "VCDM 2.0 secured
+with SD-JWT". In the OID4VCI drafts, `vc+sd-jwt` meant IETF SD-JWT VC, which
+1.0 renamed `dc+sd-jwt`, so some wallets may expect a `vct` claim here.
 
 ## Deployment
 

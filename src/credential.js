@@ -3,10 +3,10 @@ import { offerKey } from './offers.js'
 import { tokenKey } from './token.js'
 import { consumeNonce } from './nonce.js'
 
-// The OID4VCI 1.0 Credential Endpoint. `signCredential` is caller-supplied
-// (opintotodiste, or any other coordinator, wires it to its own
-// signing-service instance) - this module only handles token/proof/offer
-// bookkeeping, never the credential content itself.
+// The OID4VCI 1.0 Credential Endpoint. `signCredential(configurationId, vc)`
+// picks the signer for the offer's configuration (see src/signers.js) - this
+// module only handles token/proof/offer bookkeeping, never the credential
+// content itself.
 export function createCredentialHandler({
   store,
   credentialIssuer,
@@ -74,7 +74,7 @@ export function createCredentialHandler({
     store.delete(tokenKey(accessToken))
 
     try {
-      const credential = await signCredential(offer.unsignedCredential)
+      const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential)
       // Section 8.3: immediate issuance is a 200 with a `credentials` array of
       // objects, each holding one `credential`; there is no top-level `credential`.
       res.set('Cache-Control', 'no-store')
