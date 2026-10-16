@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { createApp } from './src/app.js'
 import { callSigningService } from './src/signing.js'
 import { loadSigningKey } from './src/keys.js'
+import { loadX5c } from './src/x5c.js'
 
 const PORT = process.env.PORT || 4007
 const CREDENTIAL_ISSUER = process.env.CREDENTIAL_ISSUER
@@ -37,6 +38,12 @@ if (process.env.SD_JWT_SIGNING_KEY) {
     issuer: process.env.SD_JWT_ISSUER || CREDENTIAL_ISSUER,
     key: await loadSigningKey(process.env.SD_JWT_SIGNING_KEY),
   }
+  if (process.env.SD_JWT_X5C) {
+    if (process.env.SD_JWT_X5C === 'generate') {
+      console.warn('SD_JWT_X5C=generate: using a self-signed certificate for the SD-JWT signing key. Dev only.')
+    }
+    sdJwt.x5c = await loadX5c(process.env.SD_JWT_X5C, sdJwt)
+  }
 }
 
 const app = createApp({
@@ -45,6 +52,7 @@ const app = createApp({
   coordinatorToken: process.env.COORDINATOR_TOKEN,
   signLdpVc,
   sdJwt,
+  logRequests: process.env.LOG_REQUESTS === '1',
 })
 
 app.listen(PORT, () => {

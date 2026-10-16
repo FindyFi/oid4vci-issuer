@@ -9,6 +9,14 @@ import { loadSigningKey } from '../src/keys.js'
 const ISSUER = 'https://issuer.example'
 const CONFIG_ID = 'OpenBadgeCredential'
 const SD_JWT_CONFIG_ID = 'OpenBadgeCredentialSdJwt'
+const DC_CONFIG_ID = 'OpenBadgeCredentialSdJwtVc'
+const VCT = `${ISSUER}/vct/OpenBadgeCredential`
+const DC_CONFIG = {
+  format: 'dc+sd-jwt',
+  vct: VCT,
+  cryptographic_binding_methods_supported: ['jwk'],
+  credential_metadata: { display: [{ name: 'Opintosuoritus', locale: 'fi', description: 'Open Badge' }, { name: 'Study record', locale: 'en' }] },
+}
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
 const COORDINATOR_TOKEN = 'secret'
 
@@ -19,7 +27,7 @@ const signed = []
 before(async () => {
   const app = createApp({
     credentialIssuer: ISSUER,
-    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' }, [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt' } },
+    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' }, [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt' }, [DC_CONFIG_ID]: DC_CONFIG },
     coordinatorToken: COORDINATOR_TOKEN,
     // Stub signing-service: records what it was asked to sign and returns a fake proof.
     signLdpVc: async (vc) => {
@@ -134,6 +142,18 @@ test('a replayed nonce is rejected', async () => {
   assert.equal((await res.json()).error, 'invalid_nonce')
 })
 
+test('a pre-1.0 singular proof is accepted', async () => {
+  const { body: created } = await createOffer()
+  const { token, proof } = await redeem(created)
+  const res = await fetch(`${base}/credential`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token.access_token}` },
+    body: JSON.stringify({ credential_configuration_id: CONFIG_ID, proof: { proof_type: 'jwt', jwt: proof } }),
+  })
+  assert.equal(res.status, 200)
+  assert.ok((await res.json()).credentials[0].credential)
+})
+
 test('a credential_configuration_id mismatch is rejected', async () => {
   const { body: created } = await createOffer({ credentialConfigurationId: CONFIG_ID, unsignedCredential })
   const { token, proof } = await redeem(created)
@@ -156,6 +176,25 @@ test('issuer metadata advertises the endpoints', async () => {
   assert.equal(meta.credential_endpoint, `${ISSUER}/credential`)
   assert.equal(meta.nonce_endpoint, `${ISSUER}/nonce`)
   assert.ok(meta.credential_configurations_supported[CONFIG_ID])
+})
+
+test('authorization server metadata names the token endpoint and the pre-authorized grant', async () => {
+  const meta = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json()
+  assert.equal(meta.issuer, ISSUER)
+  assert.equal(meta.token_endpoint, `${ISSUER}/token`)
+  assert.deepEqual(meta.grant_types_supported, [GRANT_TYPE])
+  assert.equal(meta['pre-authorized_grant_anonymous_access_supported'], true)
+})
+
+// The discovery fallback wallets try after oauth-authorization-server. It is
+// RFC 8414 metadata, not an OpenID Federation Entity Configuration.
+test('openid-configuration serves the same authorization server metadata', async () => {
+  const res = await fetch(`${base}/.well-known/openid-configuration`)
+  assert.equal(res.status, 200)
+  const fallback = await res.json()
+  const primary = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json()
+  assert.deepEqual(fallback, primary)
+  assert.equal(fallback.token_endpoint, `${ISSUER}/token`)
 })
 
 const vcdm2Credential = {
@@ -252,3 +291,49 @@ test('an offer for an unknown credential configuration is rejected with 400', as
   const { res } = await createOffer({ credentialConfigurationId: 'Nope', unsignedCredential })
   assert.equal(res.status, 400)
 })
+
+const dcClaims = { vct: VCT, sub: 'urn:x:subject', awarded_on: '2024-06-01', achievement: { id: 'urn:x:a', name: 'A' } }
+
+async function issueDc(claims = dcClaims) {
+  const { res, body: created } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims })
+  assert.equal(res.status, 200, JSON.stringify(created))
+  const { token, proof } = await redeem(created)
+  const credRes = await credentialRequest(token.access_token, proof, DC_CONFIG_ID)
+  assert.equal(credRes.status, 200)
+  return { sdJwt: (await credRes.json()).credentials[0].credential, proof }
+}
+
+test('dc+sd-jwt: flat claims plus iss, iat and cnf with the proof key, no disclosures', async () => {
+  const { sdJwt, proof } = await issueDc()
+  assert.match(sdJwt, /^[\w-]+\.[\w-]+\.[\w-]+~$/)
+  const { jwks } = await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()
+  const { payload, protectedHeader } = await jwtVerify(sdJwt.slice(0, -1), createLocalJWKSet(jwks), { issuer: ISSUER, typ: 'dc+sd-jwt' })
+  assert.deepEqual(protectedHeader, { typ: 'dc+sd-jwt', kid: jwks.keys[0].kid, alg: 'ES256' })
+  const { iss, iat, cnf, ...claims } = payload
+  assert.deepEqual(claims, dcClaims)
+  assert.deepEqual(cnf, { jwk: decodeProtectedHeader(proof).jwk })
+  for (const claim of ['nbf', '_sd', '_sd_alg', '@context', 'credentialSubject']) assert.equal(claim in payload, false, claim)
+})
+
+test('dc+sd-jwt: a wrong vct or an issuer-owned claim is rejected with 400', async () => {
+  for (const claims of [{ ...dcClaims, vct: 'https://other.example/vct' }, { ...dcClaims, iss: ISSUER }, { ...dcClaims, cnf: {} }]) {
+    const { res } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims })
+    assert.equal(res.status, 400)
+  }
+})
+
+test('dc+sd-jwt: type metadata is served at the vct URL', async () => {
+  const meta = await (await fetch(`${base}/vct/OpenBadgeCredential`)).json()
+  assert.equal(meta.vct, VCT)
+  assert.equal(meta.name, 'Opintosuoritus')
+  assert.deepEqual(meta.display[1], { locale: 'en', lang: 'en', name: 'Study record' })
+})
+
+test('vc+sd-jwt binds the holder only when its configuration lists jwk', async () => {
+  const sdJwt = await issueSdJwt()
+  assert.equal('cnf' in decodeJwtPayload(sdJwt), false)
+})
+
+function decodeJwtPayload(sdJwt) {
+  return JSON.parse(Buffer.from(sdJwt.split('.')[1], 'base64url'))
+}

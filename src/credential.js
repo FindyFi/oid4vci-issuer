@@ -36,8 +36,15 @@ export function createCredentialHandler({
     // Section 8.2: request proofs live under the plural "proofs" object,
     // keyed by proof type, each holding an array of proof values - not a
     // singular "proof". This service only ever offers one credential
-    // instance per offer, so exactly one "jwt" proof is expected.
-    const jwtProofs = req.body?.proofs?.jwt
+    // instance per offer, so exactly one "jwt" proof is expected. Pre-1.0
+    // wallets (draft 13 and earlier) still send a singular
+    // { proof_type: "jwt", jwt }, which is accepted as the same thing.
+    const legacyProof = req.body?.proof
+    const jwtProofs = req.body?.proofs
+      ? req.body.proofs.jwt
+      : legacyProof?.proof_type === 'jwt' && typeof legacyProof.jwt === 'string'
+        ? [legacyProof.jwt]
+        : undefined
     if (!Array.isArray(jwtProofs) || jwtProofs.length !== 1) {
       return res.status(400).json({
         error: 'invalid_credential_request',
@@ -74,7 +81,7 @@ export function createCredentialHandler({
     store.delete(tokenKey(accessToken))
 
     try {
-      const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential)
+      const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential, { holderJwk: verified.header.jwk })
       // Section 8.3: immediate issuance is a 200 with a `credentials` array of
       // objects, each holding one `credential`; there is no top-level `credential`.
       res.set('Cache-Control', 'no-store')

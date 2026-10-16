@@ -11,11 +11,12 @@ signs depends on the credential configuration's `format`:
 
 | `format` | Signed by | Credential returned to the wallet |
 |----------|-----------|-----------------------------------|
+| `dc+sd-jwt` | this service, with its own ES256 key (`SD_JWT_SIGNING_KEY`) | an IETF SD-JWT VC: the coordinator's flat claims (with `vct`) plus `iss`, `iat` and `cnf`, no disclosures: `<jws>~` |
 | `vc+sd-jwt` | this service, with its own ES256 key (`SD_JWT_SIGNING_KEY`) | a W3C VCDM 2.0 credential secured as an SD-JWT with no disclosures: `<jws>~` |
 | `ldp_vc` | a [`digitalcredentials/signing-service`](https://github.com/digitalcredentials/signing-service) instance | the JSON-LD credential with a Data Integrity `proof` |
 
 Any other format stops the service at startup. Apart from checking the
-SD-JWT issuer (see below), it never inspects or changes credential content.
+SD-JWT issuer and `vct` (see below), it never inspects or changes credential content.
 
 Run it the same way you'd run `signing-service` alongside a coordinator: as
 its own process/container, not imported as a library.
@@ -68,10 +69,12 @@ See `.env.example`.
 | `CREDENTIAL_ISSUER` | always | This service's own public HTTPS base URL. |
 | `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | always | JSON map of configuration id → OID4VCI configuration. Each entry should declare `proof_types_supported`, since that's what makes 1.0 require a proof, and therefore the Nonce Endpoint, for that credential type. |
 | `SD_JWT_SIGNING_KEY` | if a configuration has format `vc+sd-jwt` | A private EC P-256 JWK as JSON, or `generate` (dev only: a fresh key on every start, so earlier credentials stop verifying). The `kid` is always the key's RFC 7638 thumbprint. |
+| `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. |
 | `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
 | `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
 | `COORDINATOR_TOKEN` | beyond local dev | Shared secret for offer creation. |
 | `PORT` | no | Defaults to 4007. |
+| `LOG_REQUESTS` | no | `1` logs one line per request: the body's shape (no values, only proof JWT headers), the error returned, and the user agent. For wallet interop debugging. |
 
 The service refuses to start if a configuration's format is unsupported, or
 if what that format needs isn't configured.
@@ -82,7 +85,22 @@ To make a key for `SD_JWT_SIGNING_KEY`:
 node -e "import('jose').then(async j => console.log(JSON.stringify(await j.exportJWK((await j.generateKeyPair('ES256', { extractable: true })).privateKey))))"
 ```
 
-An SD-JWT configuration looks like this:
+An SD-JWT VC configuration looks like this. `vct` must be set; if it is a
+URL under `CREDENTIAL_ISSUER`, this service serves SD-JWT VC Type Metadata
+there, built from `credential_metadata.display`:
+
+```json
+"OpenBadgeCredentialSdJwtVc": {
+  "format": "dc+sd-jwt",
+  "vct": "https://issuer.example/vct/OpenBadgeCredential",
+  "cryptographic_binding_methods_supported": ["jwk"],
+  "credential_signing_alg_values_supported": ["ES256"],
+  "proof_types_supported": { "jwt": { "proof_signing_alg_values_supported": ["ES256"] } },
+  "credential_metadata": { "display": [{ "name": "Open Badge", "locale": "en" }] }
+}
+```
+
+A VCDM 2.0 SD-JWT configuration looks like this:
 
 ```json
 "OpenBadgeCredentialSdJwt": {
@@ -146,12 +164,19 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
   link. Returns 400 if `credentialConfigurationId` isn't configured. For a
   `vc+sd-jwt` configuration it also returns 400 if the credential's issuer
   (`issuer`, or `issuer.id`) isn't exactly the SD-JWT issuer URL, or if
-  `validFrom` isn't a date-time. The issuer is never overwritten silently.
+  `validFrom` isn't a date-time. For a `dc+sd-jwt` configuration it returns
+  400 if `vct` isn't the configuration's, or if the claims contain any of
+  `iss`, `iat`, `nbf`, `exp`, `cnf`, `_sd` or `_sd_alg`. Nothing is
+  overwritten silently.
 
 Wallet-facing (public):
 
 - `GET /.well-known/openid-credential-issuer` — issuer metadata, including
   `nonce_endpoint`.
+- `GET /.well-known/oauth-authorization-server` — OAuth 2.0 Authorization
+  Server Metadata (RFC 8414). This service is its own authorization server, so
+  1.0 wallets find `token_endpoint` here. It advertises only the
+  pre-authorized code grant, with anonymous access.
 - `GET /.well-known/jwt-vc-issuer` — only when SD-JWT signing is configured.
   JWT VC Issuer Metadata: `{ "issuer": <issuer URL>, "jwks": { "keys": [<public JWK with kid, alg, use: "sig">] } }`.
   Verifiers use it to find the key for an SD-JWT's `iss` and `kid`.
@@ -234,10 +259,14 @@ replica until that is swapped for a shared store.
 
 ## Design notes
 
-- **Bearer credential, no holder binding**: the proof JWT's signature/nonce/
-  audience are verified (required by spec), but its key is not used to bind
-  `credentialSubject.id`. A future opt-in binding step would use the
-  `header.jwk` already available from `src/proof.js`'s `verifyProof`.
+- **Holder binding is per configuration**: the proof JWT's signature, nonce
+  and audience are always verified. An SD-JWT configuration that lists `jwk`
+  in `cryptographic_binding_methods_supported` gets the proof's public key as
+  `cnf.jwk`; without it the credential is a bearer credential. Some wallets
+  (Procivis One) refuse unbound credentials, and some (Heidi) send no proof
+  unless binding is advertised.
+- **Pre-1.0 proofs**: a singular `proof: { proof_type: "jwt", jwt }` is
+  accepted as well as the 1.0 `proofs.jwt` array.
 - **Proof algorithms come from the metadata**: `/credential` accepts only the
   algorithms the matching credential configuration advertises in
   `proof_signing_alg_values_supported`, falling back to a fixed asymmetric-only
