@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { createApp } from './src/app.js'
 import { callSigningService } from './src/signing.js'
+import { loadSigningKey } from './src/keys.js'
 
 const PORT = process.env.PORT || 4007
 const CREDENTIAL_ISSUER = process.env.CREDENTIAL_ISSUER
@@ -16,16 +17,34 @@ try {
   throw new Error('CREDENTIAL_CONFIGURATIONS_SUPPORTED must be valid JSON.')
 }
 
+// Only needed when some configuration has format ldp_vc; createApp refuses
+// to start if one does and this is missing.
+const signLdpVc = process.env.SIGNING_SERVICE_URL
+  ? (vc) =>
+      callSigningService(vc, {
+        baseUrl: process.env.SIGNING_SERVICE_URL,
+        instanceId: process.env.SIGNING_SERVICE_INSTANCE,
+        suite: process.env.SIGNING_SERVICE_SUITE,
+      })
+  : undefined
+
+let sdJwt
+if (process.env.SD_JWT_SIGNING_KEY) {
+  if (process.env.SD_JWT_SIGNING_KEY === 'generate') {
+    console.warn('SD_JWT_SIGNING_KEY=generate: using a fresh SD-JWT signing key. Credentials issued before a restart will no longer verify. Dev only.')
+  }
+  sdJwt = {
+    issuer: process.env.SD_JWT_ISSUER || CREDENTIAL_ISSUER,
+    key: await loadSigningKey(process.env.SD_JWT_SIGNING_KEY),
+  }
+}
+
 const app = createApp({
   credentialIssuer: CREDENTIAL_ISSUER,
   credentialConfigurationsSupported,
   coordinatorToken: process.env.COORDINATOR_TOKEN,
-  signCredential: (vc) =>
-    callSigningService(vc, {
-      baseUrl: process.env.SIGNING_SERVICE_URL,
-      instanceId: process.env.SIGNING_SERVICE_INSTANCE,
-      suite: process.env.SIGNING_SERVICE_SUITE,
-    }),
+  signLdpVc,
+  sdJwt,
 })
 
 app.listen(PORT, () => {

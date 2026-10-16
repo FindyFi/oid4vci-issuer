@@ -1,10 +1,14 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { generateKeyPair, exportJWK, SignJWT } from 'jose'
+import { generateKeyPair, exportJWK, SignJWT, jwtVerify, createLocalJWKSet, decodeProtectedHeader, calculateJwkThumbprint } from 'jose'
+import { SDJwtInstance } from '@sd-jwt/core'
+import { ES256, digest } from '@sd-jwt/crypto-nodejs'
 import { createApp } from '../src/app.js'
+import { loadSigningKey } from '../src/keys.js'
 
 const ISSUER = 'https://issuer.example'
 const CONFIG_ID = 'OpenBadgeCredential'
+const SD_JWT_CONFIG_ID = 'OpenBadgeCredentialSdJwt'
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
 const COORDINATOR_TOKEN = 'secret'
 
@@ -15,13 +19,14 @@ const signed = []
 before(async () => {
   const app = createApp({
     credentialIssuer: ISSUER,
-    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' } },
+    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' }, [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt' } },
     coordinatorToken: COORDINATOR_TOKEN,
-    // Stub signer: records what it was asked to sign and returns a fake proof.
-    signCredential: async (vc) => {
+    // Stub signing-service: records what it was asked to sign and returns a fake proof.
+    signLdpVc: async (vc) => {
       signed.push(vc)
       return { ...vc, proof: { type: 'DataIntegrityProof' } }
     },
+    sdJwt: { issuer: ISSUER, key: await loadSigningKey('generate') },
   })
   await new Promise((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve)
@@ -151,4 +156,99 @@ test('issuer metadata advertises the endpoints', async () => {
   assert.equal(meta.credential_endpoint, `${ISSUER}/credential`)
   assert.equal(meta.nonce_endpoint, `${ISSUER}/nonce`)
   assert.ok(meta.credential_configurations_supported[CONFIG_ID])
+})
+
+const vcdm2Credential = {
+  '@context': ['https://www.w3.org/ns/credentials/v2', 'https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json'],
+  id: 'urn:uuid:5f0c2a4e-0a8e-4c55-9a43-2f6b0e1c7d11',
+  type: ['VerifiableCredential', 'OpenBadgeCredential'],
+  issuer: { id: ISSUER, type: ['Profile'], name: 'Test issuer' },
+  validFrom: '2024-06-01T00:00:00Z',
+  credentialSubject: { type: ['AchievementSubject'], achievement: { id: 'urn:x:a', type: ['Achievement'], name: 'A' } },
+}
+
+async function issueSdJwt(unsigned = vcdm2Credential) {
+  const { res, body: created } = await createOffer({ credentialConfigurationId: SD_JWT_CONFIG_ID, unsignedCredential: unsigned })
+  assert.equal(res.status, 200)
+  const { token, proof } = await redeem(created)
+  const credRes = await credentialRequest(token.access_token, proof, SD_JWT_CONFIG_ID)
+  assert.equal(credRes.status, 200)
+  return (await credRes.json()).credentials[0].credential
+}
+
+test('vc+sd-jwt: the credential is an SD-JWT with no disclosures that verifies against the published JWKS', async () => {
+  const signedBefore = signed.length
+  const sdJwt = await issueSdJwt()
+  assert.equal(typeof sdJwt, 'string')
+  assert.match(sdJwt, /^[\w-]+\.[\w-]+\.[\w-]+~$/)
+  assert.equal(signed.length, signedBefore, 'signing-service must not be called')
+
+  const meta = await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()
+  assert.equal(meta.issuer, ISSUER)
+  assert.equal(meta.jwks.keys.length, 1)
+  const [jwk] = meta.jwks.keys
+  assert.equal(jwk.alg, 'ES256')
+  assert.equal(jwk.use, 'sig')
+  assert.equal('d' in jwk, false)
+
+  const jws = sdJwt.slice(0, -1)
+  const { payload, protectedHeader } = await jwtVerify(jws, createLocalJWKSet(meta.jwks), {
+    issuer: ISSUER,
+    typ: 'vc+sd-jwt',
+    algorithms: ['ES256'],
+  })
+  assert.deepEqual(protectedHeader, { typ: 'vc+sd-jwt', kid: jwk.kid, alg: 'ES256' })
+
+  const { iss, iat, nbf, ...vc } = payload
+  assert.equal(iss, ISSUER)
+  assert.ok(Math.abs(iat - Date.now() / 1000) < 60)
+  assert.equal(nbf, Date.parse(vcdm2Credential.validFrom) / 1000)
+  assert.deepEqual(vc, vcdm2Credential)
+  for (const claim of ['cnf', '_sd', '_sd_alg']) assert.equal(claim in payload, false, claim)
+
+  // And an SD-JWT library (as a wallet would use) accepts it, with no disclosures.
+  const verifier = new SDJwtInstance({ verifier: await ES256.getVerifier(jwk), hasher: digest })
+  const verified = await verifier.verify(sdJwt)
+  assert.deepEqual(verified.payload, payload)
+  assert.deepEqual(await verifier.getClaims(sdJwt), payload)
+})
+
+test('vc+sd-jwt: the kid is the JWK thumbprint', async () => {
+  const sdJwt = await issueSdJwt()
+  const { kid } = decodeProtectedHeader(sdJwt.slice(0, -1))
+  const meta = await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()
+  const { kty, crv, x, y } = meta.jwks.keys[0]
+  assert.equal(kid, await calculateJwkThumbprint({ kty, crv, x, y }, 'sha256'))
+})
+
+test('vc+sd-jwt: a string issuer is accepted, and no validFrom means no nbf', async () => {
+  const { validFrom, ...rest } = vcdm2Credential
+  const sdJwt = await issueSdJwt({ ...rest, issuer: ISSUER })
+  const { payload } = await jwtVerify(sdJwt.slice(0, -1), createLocalJWKSet((await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()).jwks))
+  assert.equal(payload.issuer, ISSUER)
+  assert.equal('nbf' in payload, false)
+})
+
+test('vc+sd-jwt: an offer with a different issuer is rejected with 400', async () => {
+  for (const issuer of ['https://other.example', { id: 'https://other.example', type: ['Profile'] }, undefined]) {
+    const { res, body } = await createOffer({
+      credentialConfigurationId: SD_JWT_CONFIG_ID,
+      unsignedCredential: { ...vcdm2Credential, issuer },
+    })
+    assert.equal(res.status, 400)
+    assert.match(body.error, /issuer/)
+  }
+})
+
+test('vc+sd-jwt: an offer with an invalid validFrom is rejected with 400', async () => {
+  const { res } = await createOffer({
+    credentialConfigurationId: SD_JWT_CONFIG_ID,
+    unsignedCredential: { ...vcdm2Credential, validFrom: 'yesterday' },
+  })
+  assert.equal(res.status, 400)
+})
+
+test('an offer for an unknown credential configuration is rejected with 400', async () => {
+  const { res } = await createOffer({ credentialConfigurationId: 'Nope', unsignedCredential })
+  assert.equal(res.status, 400)
 })
