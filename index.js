@@ -4,6 +4,17 @@ import { callSigningService } from './src/signing.js'
 import { loadPreviousKeys, loadSigningKey } from './src/keys.js'
 import { loadX5c } from './src/x5c.js'
 import { resolveVctIntegrity } from './src/vct-integrity.js'
+import { loadEnvManifest, missingRequired } from './src/env-manifest.js'
+
+// Deployed images set NODE_ENV=production: refuse to start with a required
+// variable missing, and name all of them at once. Dev keeps its defaults.
+if (process.env.NODE_ENV === 'production') {
+  const missing = missingRequired(loadEnvManifest(), process.env)
+  if (missing.length) {
+    console.error(`Missing required environment variables: ${missing.join(', ')}`)
+    process.exit(1)
+  }
+}
 
 const PORT = process.env.PORT || 4007
 const CREDENTIAL_ISSUER = process.env.CREDENTIAL_ISSUER
