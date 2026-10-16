@@ -229,6 +229,9 @@ Wallet-facing (public):
   Server Metadata (RFC 8414). This service is its own authorization server, so
   1.0 wallets find `token_endpoint` here. It advertises only the
   pre-authorized code grant, with anonymous access.
+- `GET /.well-known/openid-configuration` — the same RFC 8414 document, for
+  wallets that fall back to this path. It is not an OpenID Federation Entity
+  Configuration.
 - `GET /.well-known/jwt-vc-issuer` — only when SD-JWT signing is configured.
   JWT VC Issuer Metadata: `{ "issuer": <issuer URL>, "jwks": { "keys": [<public JWK with kid, alg, use: "sig">] } }`.
   Verifiers use it to find the key for an SD-JWT's `iss` and `kid`.
