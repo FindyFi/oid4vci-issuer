@@ -38,18 +38,30 @@ function parseChain(pem) {
   return blocks.map((block) => new x509.X509Certificate(block))
 }
 
-async function selfSigned({ issuer, host, key }) {
-  const { d, ...publicJwk } = key.privateJwk
+// A self-signed certificate for the signing key, valid for `days` from now.
+// scripts/self-signed-x5c.js uses it to make a certificate once and keep it,
+// which is what production does (a stable SD_JWT_X5C, not `generate`).
+// The key may live in KMS, so its private half is never a CryptoKey: the
+// generator gets a crypto object whose `sign` calls `key.sign`.
+export async function selfSigned({ issuer, host = new URL(issuer).hostname, key, days = 365 }) {
+  const { kty, crv, x, y } = key.publicJwk
   const keys = {
-    privateKey: await webcrypto.subtle.importKey('jwk', key.privateJwk, EC_P256, false, ['sign']),
-    publicKey: await webcrypto.subtle.importKey('jwk', publicJwk, EC_P256, true, ['verify']),
+    privateKey: { algorithm: EC_P256, type: 'private' },
+    publicKey: await webcrypto.subtle.importKey('jwk', { kty, crv, x, y }, EC_P256, true, ['verify']),
+  }
+  const crypto = {
+    getRandomValues: (array) => webcrypto.getRandomValues(array),
+    subtle: {
+      exportKey: (...args) => webcrypto.subtle.exportKey(...args),
+      sign: async (algorithm, privateKey, data) => (await key.sign(new Uint8Array(data))).slice().buffer,
+    },
   }
   const notBefore = new Date()
   return x509.X509CertificateGenerator.createSelfSigned({
     serialNumber: Buffer.from(webcrypto.getRandomValues(new Uint8Array(16))).toString('hex').replace(/^[89a-f]/, '1'),
     name: `CN=${host}`,
     notBefore,
-    notAfter: new Date(notBefore.getTime() + 365 * 24 * 60 * 60 * 1000),
+    notAfter: new Date(notBefore.getTime() + days * 24 * 60 * 60 * 1000),
     signingAlgorithm: { name: 'ECDSA', hash: 'SHA-256' },
     keys,
     extensions: [
@@ -59,5 +71,5 @@ async function selfSigned({ issuer, host, key }) {
       ]),
       new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
     ],
-  })
+  }, crypto)
 }

@@ -68,8 +68,9 @@ See `.env.example`.
 |----------|--------|---------|
 | `CREDENTIAL_ISSUER` | always | This service's own public HTTPS base URL. |
 | `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | always | JSON map of configuration id → OID4VCI configuration. Each entry should declare `proof_types_supported`, since that's what makes 1.0 require a proof, and therefore the Nonce Endpoint, for that credential type. |
-| `SD_JWT_SIGNING_KEY` | if a configuration has format `vc+sd-jwt` | A private EC P-256 JWK as JSON, or `generate` (dev only: a fresh key on every start, so earlier credentials stop verifying). The `kid` is always the key's RFC 7638 thumbprint. |
-| `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. |
+| `SD_JWT_SIGNING_KEY` | if a configuration has format `dc+sd-jwt` or `vc+sd-jwt` | `kms:<key ARN>` (an AWS KMS key, ECC_NIST_P256 / SIGN_VERIFY; use this in production), a private EC P-256 JWK as JSON, or `generate` (dev only: a fresh key on every start, so earlier credentials stop verifying). The `kid` is always the key's RFC 7638 thumbprint. |
+| `SD_JWT_PREVIOUS_KEYS` | no | After a key rotation: a JSON array of the earlier keys' **public** JWKs. They stay in `/.well-known/jwt-vc-issuer` after the current key, so credentials they signed keep verifying. See "Production keys" below. |
+| `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. `scripts/self-signed-x5c.js` makes a stored one. |
 | `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
 | `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
 | `COORDINATOR_TOKEN` | beyond local dev | Shared secret for offer creation. |
@@ -79,11 +80,52 @@ See `.env.example`.
 The service refuses to start if a configuration's format is unsupported, or
 if what that format needs isn't configured.
 
-To make a key for `SD_JWT_SIGNING_KEY`:
+To make a local key for `SD_JWT_SIGNING_KEY` (outside production):
 
 ```sh
 node -e "import('jose').then(async j => console.log(JSON.stringify(await j.exportJWK((await j.generateKeyPair('ES256', { extractable: true })).privateKey))))"
 ```
+
+### Production keys
+
+In production the signing key is an AWS KMS key, so the private key never
+leaves KMS. Create it with key spec `ECC_NIST_P256` and usage `SIGN_VERIFY`,
+and set `SD_JWT_SIGNING_KEY=kms:<key ARN>`. The task's IAM role needs
+`kms:GetPublicKey` (at startup) and `kms:Sign` (once per credential) on it.
+The service hashes locally and sends KMS only the SHA-256 digest, so large
+credentials don't hit the 4 KB limit on KMS messages.
+
+Make the `x5c` certificate once and store it, instead of using `generate`:
+
+```sh
+SD_JWT_SIGNING_KEY=kms:<key ARN> CREDENTIAL_ISSUER=https://issuer.example \
+  node scripts/self-signed-x5c.js [days] > x5c.pem
+```
+
+This needs AWS credentials allowed to call `kms:GetPublicKey` and `kms:Sign`
+on the key. The certificate is self-signed, valid for 3650 days by default,
+and names the issuer as SAN URI and SAN DNS. Credo-based wallets (Paradym)
+ask the user to accept an unknown issuer; a stable certificate means the same
+issuer each time. When it expires, those wallets stop accepting credentials
+that carry it, so renew it well before then: run the script again and
+redeploy (the key and `kid` stay the same).
+
+**Rotating the key.** KMS doesn't rotate asymmetric keys itself, so a
+rotation is a new key:
+
+1. Create the new KMS key, and make a certificate for it with the script.
+2. Add the **current** key's public JWK (from `/.well-known/jwt-vc-issuer`)
+   to `SD_JWT_PREVIOUS_KEYS`.
+3. Point `SD_JWT_SIGNING_KEY` at the new key, set `SD_JWT_X5C` to the new
+   certificate, and redeploy. The service refuses to start if the certificate
+   doesn't hold the new key.
+4. Keep the old key's JWK in `SD_JWT_PREVIOUS_KEYS` for as long as
+   credentials it signed should verify. Credentials carry no `exp`, so in
+   practice that's for good. You can disable the old KMS key (it's no longer
+   used to sign); don't schedule its deletion until you're sure.
+
+Credentials already in wallets keep their own `x5c` header, so the old
+certificate goes on working for them until it expires.
 
 An SD-JWT VC configuration looks like this. `vct` must be set; if it is a
 URL under `CREDENTIAL_ISSUER`, this service serves SD-JWT VC Type Metadata

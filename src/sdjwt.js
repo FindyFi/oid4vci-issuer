@@ -62,7 +62,8 @@ export function checkSdJwtCredential(credential, configuration, { issuer }) {
 // chain is configured (see src/x5c.js).
 export async function signSdJwt(credential, configuration, { issuer, key, x5c }, { holderJwk } = {}) {
   const sdjwt = new SDJwtInstance({
-    signer: await ES256.getSigner(key.privateJwk),
+    // key.sign is a local key or KMS (src/keys.js); the library wants base64url.
+    signer: async (data) => Buffer.from(await key.sign(Buffer.from(data))).toString('base64url'),
     signAlg: ES256.alg,
     hasher: digest,
     saltGenerator: generateSalt,
