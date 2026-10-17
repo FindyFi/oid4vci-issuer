@@ -1,6 +1,6 @@
 {
   "name": "oid4vci-issuer",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A minimal OID4VCI (OpenID for Verifiable Credential Issuance) issuer service. Content-agnostic: takes an already-built unsigned Verifiable Credential from a coordinator, runs the pre-authorized-code/token/credential protocol with the wallet, and signs it either as an SD-JWT (vc+sd-jwt) with its own key or, for ldp_vc, via a digitalcredentials/signing-service instance.",
   "homepage": "https://github.com/FindyFi/oid4vci-issuer#readme",
   "bugs": {
