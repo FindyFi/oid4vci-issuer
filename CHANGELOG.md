@@ -9,6 +9,41 @@ version to pin.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-17
+
+### Added
+
+- Wallet credentials signed by this service itself with an ES256 key: IETF SD-JWT VC (`dc+sd-jwt`,
+  with a `vct`) and VCDM 2.0 secured as `vc+sd-jwt`. No selective disclosure. The key is
+  `SD_JWT_SIGNING_KEY`: a private JWK, `kms:<key ARN>` to sign with a non-exportable AWS KMS key, or
+  `generate` for local development.
+- Holder binding per credential configuration: one that lists `jwk` in
+  `cryptographic_binding_methods_supported` gets the wallet's proof key as `cnf.jwk`.
+- `GET /.well-known/jwt-vc-issuer`, publishing the signing key, and during a rotation the old ones
+  from `SD_JWT_PREVIOUS_KEYS`.
+- An optional `x5c` certificate chain in the SD-JWT header (`SD_JWT_X5C`), which Credo-based wallets
+  such as Paradym need, and `scripts/self-signed-x5c.js` to make a stored self-signed certificate.
+- `vct#integrity`, computed at startup from the configuration's `vct` and optionally pinned.
+- The pre-1.0 singular `proof` is accepted as well as `proofs.jwt`.
+- `LOG_REQUESTS=1` logs each request.
+- `.env.example` tags every variable `# @env required|optional [secret]`; with `NODE_ENV=production`
+  the service exits at startup naming all missing required variables.
+
+### Changed
+
+- **Deployments must set** `CREDENTIAL_ISSUER`, `CREDENTIAL_CONFIGURATIONS_SUPPORTED`,
+  `SD_JWT_SIGNING_KEY` and `COORDINATOR_TOKEN`: the image refuses to start without them.
+  `SIGNING_SERVICE_*` are needed only for `ldp_vc` configurations.
+- `/credential` returns the OID4VCI 1.0 `{ "credentials": [{ "credential": ... }] }` with
+  `Cache-Control: no-store`, instead of a top-level `credential`.
+- Offer creation returns 400 for an unknown credential configuration, and for an SD-JWT credential
+  whose issuer, `vct` or `validFrom` does not fit its configuration.
+- The app is built by `createApp` in `src/app.js`; `index.js` only reads the environment and listens.
+
+## [0.0.1]
+
+- Initial OID4VCI 1.0 pre-authorized-code issuer.
+
 ### Added
 
 - Test suite (`node --test`) driving the published entrypoint over HTTP against a stub
@@ -37,7 +72,3 @@ version to pin.
 
 - The build-and-push workflow. Images are built and published outside this repository instead, so
   that registry credentials are not configured from a public one.
-
-## [0.0.1]
-
-- Initial OID4VCI 1.0 pre-authorized-code issuer.
