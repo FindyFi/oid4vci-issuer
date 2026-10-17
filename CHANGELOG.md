@@ -9,9 +9,7 @@ version to pin.
 
 ## [Unreleased]
 
-### Removed
-
-- The Type Metadata route at the `vct` URL (`typeMetadata()`): the `vct` is hosted outside this service.
+## [0.0.3] - 2026-10-17
 
 ### Added
 
@@ -24,6 +22,12 @@ version to pin.
 - `vc+sd-jwt` credentials carry a `termsOfUse` entry of type `OpenIDFederation` when federation is on.
 - `npm run federation:setup` (`scripts/federation-metadata.js`): asks for the entity metadata and prints
   or writes the `FEDERATION_*` lines, so nobody has to hand-write the JSON.
+
+### Removed
+
+- The Type Metadata route at the `vct` URL (`typeMetadata()`): the `vct` is hosted outside this service.
+
+No new required variables: federation stays off until `FEDERATION_ENTITY_METADATA` is set.
 
 ## [0.0.2] - 2026-10-17
 
