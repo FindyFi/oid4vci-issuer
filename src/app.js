@@ -8,6 +8,7 @@ import { createAuthorizationServerMetadataHandler, createMetadataHandler } from 
 import { requireCoordinatorToken } from './auth.js'
 import { createSigners } from './signers.js'
 import { createJwtVcIssuerHandler } from './jwt-vc-issuer.js'
+import { checkFederationSetup, createEntityConfigurationHandler } from './federation.js'
 import { DC_SD_JWT, typeMetadata } from './sdjwt.js'
 
 // Builds the Express app from explicit config, without reading the
@@ -16,7 +17,7 @@ import { DC_SD_JWT, typeMetadata } from './sdjwt.js'
 // vars. `signLdpVc` signs `ldp_vc` credentials (signing-service); `sdJwt`
 // ({ issuer, key }) signs SD-JWT credentials with this service's own key.
 // Throws if a configuration's format can't be served with what was given.
-export function createApp({ credentialIssuer, credentialConfigurationsSupported, coordinatorToken, signLdpVc, sdJwt, store = createStore(), logRequests = false }) {
+export function createApp({ credentialIssuer, credentialConfigurationsSupported, coordinatorToken, signLdpVc, sdJwt, store = createStore(), logRequests = false, federation }) {
   if (sdJwt) {
     let url
     try {
@@ -29,6 +30,13 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
     if (url.origin !== sdJwt.issuer) {
       throw new Error(`The SD-JWT issuer must be an origin with no path or trailing slash, e.g. ${url.origin}`)
     }
+  }
+  // `federation` ({ key, entityMetadata, authorityHints, trustMarks, ttl })
+  // turns on the OpenID Federation Entity Configuration, and credentials
+  // then carry `fed`.
+  if (federation) {
+    checkFederationSetup({ federation, sdJwt, credentialIssuer })
+    sdJwt = { ...sdJwt, fed: credentialIssuer }
   }
   const signers = createSigners({ credentialConfigurationsSupported, signLdpVc, sdJwt })
 
@@ -59,6 +67,12 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   app.get('/.well-known/oauth-authorization-server', authorizationServerMetadataHandler)
   app.get('/.well-known/openid-configuration', authorizationServerMetadataHandler)
   if (sdJwt) app.get('/.well-known/jwt-vc-issuer', createJwtVcIssuerHandler(sdJwt))
+  if (federation) {
+    app.get(
+      '/.well-known/openid-federation',
+      createEntityConfigurationHandler({ credentialIssuer, credentialConfigurationsSupported, sdJwt, federation })
+    )
+  }
   // SD-JWT VC Type Metadata at each dc+sd-jwt configuration's vct URL, when
   // that URL is under this service's origin.
   for (const configuration of Object.values(credentialConfigurationsSupported)) {

@@ -4,6 +4,7 @@ import { callSigningService } from './src/signing.js'
 import { loadPreviousKeys, loadSigningKey } from './src/keys.js'
 import { loadX5c } from './src/x5c.js'
 import { resolveVctIntegrity } from './src/vct-integrity.js'
+import { loadFederationConfig } from './src/federation.js'
 import { loadEnvManifest, missingRequired } from './src/env-manifest.js'
 
 // Deployed images set NODE_ENV=production: refuse to start with a required
@@ -59,12 +60,21 @@ if (process.env.SD_JWT_SIGNING_KEY) {
   }
 }
 
+// Federation signs the Entity Configuration with the SD-JWT key for now. A
+// separate key later means loading it here and passing it as `key`.
+const federationConfig = loadFederationConfig(process.env)
+const federation = federationConfig && sdJwt ? { ...federationConfig, key: sdJwt.key } : undefined
+if (federationConfig && !sdJwt) {
+  throw new Error('Federation (FEDERATION_ENTITY_METADATA) needs SD_JWT_SIGNING_KEY: the Entity Configuration is signed with it.')
+}
+
 const app = createApp({
   credentialIssuer: CREDENTIAL_ISSUER,
   credentialConfigurationsSupported: await resolveVctIntegrity(credentialConfigurationsSupported),
   coordinatorToken: process.env.COORDINATOR_TOKEN,
   signLdpVc,
   sdJwt,
+  federation,
   logRequests: process.env.LOG_REQUESTS === '1',
 })
 
