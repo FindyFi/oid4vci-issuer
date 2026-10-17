@@ -141,9 +141,9 @@ rotation is a new key:
 Credentials already in wallets keep their own `x5c` header, so the old
 certificate goes on working for them until it expires.
 
-An SD-JWT VC configuration looks like this. `vct` must be set; if it is a
-URL under `CREDENTIAL_ISSUER`, this service serves SD-JWT VC Type Metadata
-there, built from `credential_metadata.display`:
+An SD-JWT VC configuration looks like this. `vct` must be set. This service
+does not host the Type Metadata; `vct` points at a document hosted elsewhere
+(see below for `vct#integrity`):
 
 ```json
 "OpenBadgeCredentialSdJwtVc": {
@@ -203,7 +203,9 @@ Establishing Trust in Credential Issuers"): a compact JWS (`typ`
 - `authority_hints` and `trust_marks`, when configured.
 
 Credentials in the `dc+sd-jwt` format also get a `fed` claim with the Entity
-Identifier (coordinators must not send it).
+Identifier (coordinators must not send it). `vc+sd-jwt` credentials get a
+`termsOfUse` entry `{ "type": "OpenIDFederation", "policyId": <Entity Identifier> }`,
+added after any `termsOfUse` the coordinator sent.
 
 The Entity Configuration is signed with `SD_JWT_SIGNING_KEY`, so the root
 `jwks` and the credential keys are the same. The code takes the federation
@@ -359,12 +361,16 @@ Operational:
 - Payload: the unsigned VC exactly as the coordinator sent it, plus `iss` (the
   SD-JWT issuer URL), `iat` (issuance time) and `nbf` (from `validFrom`, if present).
 - No disclosures, so no `_sd` or `_sd_alg`, and the compact form ends in a
-  single `~`. No `cnf`: the credential is not bound to the wallet's key.
+  single `~`. `cnf` is added only when the configuration lists `jwk` in
+  `cryptographic_binding_methods_supported`.
 - All format-specific code is in `src/sdjwt.js`.
 
 Note that OID4VCI 1.0 final has no format identifier for "VCDM 2.0 secured
 with SD-JWT". In the OID4VCI drafts, `vc+sd-jwt` meant IETF SD-JWT VC, which
-1.0 renamed `dc+sd-jwt`, so some wallets may expect a `vct` claim here.
+1.0 renamed `dc+sd-jwt`, so some wallets expect a `vct` claim here. In
+interop testing (Heidi, Procivis One, Talao, Paradym) no wallet accepted
+`vc+sd-jwt`, while `dc+sd-jwt` worked in Heidi, Procivis One and Talao. Prefer
+`dc+sd-jwt`; `vc+sd-jwt` stays for wallets that implement the VCDM 2.0 profile.
 
 ## Deployment
 

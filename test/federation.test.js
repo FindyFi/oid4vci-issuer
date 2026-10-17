@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { generateKeyPair, exportJWK, SignJWT, jwtVerify, createLocalJWKSet, decodeProtectedHeader, decodeJwt } from 'jose'
 import { createApp } from '../src/app.js'
+import { signSdJwt } from '../src/sdjwt.js'
 import { loadSigningKey } from '../src/keys.js'
 import {
   buildEntityMetadata,
@@ -291,4 +292,13 @@ test('scripts/federation-metadata.js prints env lines from flags, or writes them
   assert.notEqual(bad.status, 0)
   assert.match(bad.stderr, /homepage_uri/)
   assert.notEqual(runScript([], { input: '' }).status, 0) // no flags and no terminal
+})
+
+test('vc+sd-jwt credentials get an OpenIDFederation termsOfUse entry, only when federation is on', async () => {
+  const vc = { issuer: ISSUER, termsOfUse: { type: 'Other', id: 'urn:x' } }
+  const configuration = { format: 'vc+sd-jwt' }
+  const withFed = decodeJwt((await signSdJwt(vc, configuration, { issuer: ISSUER, key, fed: ISSUER })).slice(0, -1))
+  assert.deepEqual(withFed.termsOfUse, [{ type: 'Other', id: 'urn:x' }, { type: 'OpenIDFederation', policyId: ISSUER }])
+  const without = decodeJwt((await signSdJwt(vc, configuration, { issuer: ISSUER, key })).slice(0, -1))
+  assert.deepEqual(without.termsOfUse, { type: 'Other', id: 'urn:x' })
 })
