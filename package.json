@@ -16,7 +16,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "federation:setup": "node scripts/federation-metadata.js --write"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1142.0",
