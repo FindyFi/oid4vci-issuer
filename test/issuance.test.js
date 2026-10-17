@@ -322,13 +322,6 @@ test('dc+sd-jwt: a wrong vct or an issuer-owned claim is rejected with 400', asy
   }
 })
 
-test('dc+sd-jwt: type metadata is served at the vct URL', async () => {
-  const meta = await (await fetch(`${base}/vct/OpenBadgeCredential`)).json()
-  assert.equal(meta.vct, VCT)
-  assert.equal(meta.name, 'Opintosuoritus')
-  assert.deepEqual(meta.display[1], { locale: 'en', lang: 'en', name: 'Study record' })
-})
-
 test('vc+sd-jwt binds the holder only when its configuration lists jwk', async () => {
   const sdJwt = await issueSdJwt()
   assert.equal('cnf' in decodeJwtPayload(sdJwt), false)

@@ -9,6 +9,10 @@ version to pin.
 
 ## [Unreleased]
 
+### Removed
+
+- The Type Metadata route at the `vct` URL (`typeMetadata()`): the `vct` is hosted outside this service.
+
 ### Added
 
 - OpenID Federation Entity Configuration at `/.well-known/openid-federation` (DIIP v5 and the OpenID
@@ -17,6 +21,7 @@ version to pin.
   It is signed with the SD-JWT key and needs `SD_JWT_ISSUER` to equal `CREDENTIAL_ISSUER`.
 - `dc+sd-jwt` credentials carry `fed` (the Entity Identifier) when federation is on; `fed` is now a
   reserved claim that coordinators must not send.
+- `vc+sd-jwt` credentials carry a `termsOfUse` entry of type `OpenIDFederation` when federation is on.
 - `npm run federation:setup` (`scripts/federation-metadata.js`): asks for the entity metadata and prints
   or writes the `FEDERATION_*` lines, so nobody has to hand-write the JSON.
 

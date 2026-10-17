@@ -56,8 +56,8 @@ export function checkSdJwtCredential(credential, configuration, { issuer }) {
 
 // Returns a compact SD-JWT, `<jws>~`. The payload is the credential
 // unchanged plus `iss`, `iat`, `cnf` (when binding), `vct#integrity` (from
-// the configuration, see src/vct-integrity.js), `fed` (dc+sd-jwt, when
-// federation is on) and, for a vc+sd-jwt
+// the configuration, see src/vct-integrity.js), `fed` (dc+sd-jwt) or a
+// `termsOfUse` entry (vc+sd-jwt), when federation is on and, for a vc+sd-jwt
 // with `validFrom`, `nbf`. With no disclosure frame the library adds
 // neither `_sd` nor `_sd_alg`. The header carries `x5c` when a certificate
 // chain is configured (see src/x5c.js).
@@ -78,6 +78,11 @@ export async function signSdJwt(credential, configuration, { issuer, key, x5c, f
   }
   // The OpenID Federation Entity Identifier, when federation is on (DIIP).
   if (configuration.format === DC_SD_JWT && fed) payload.fed = fed
+  // The VCDM 2.0 counterpart: a termsOfUse entry, kept next to any the coordinator sent.
+  if (configuration.format === VC_SD_JWT && fed) {
+    const own = [].concat(credential.termsOfUse ?? [])
+    payload.termsOfUse = [...own, { type: 'OpenIDFederation', policyId: fed }]
+  }
   if (bindsHolder(configuration)) {
     if (!holderJwk) throw new Error('Holder binding needs the public key from the proof JWT.')
     payload.cnf = { jwk: publicJwk(holderJwk) }
@@ -89,16 +94,4 @@ export async function signSdJwt(credential, configuration, { issuer, key, x5c, f
 // Only the public members of the wallet's key, in case a wallet sends extras.
 function publicJwk({ kty, crv, x, y, n, e }) {
   return Object.fromEntries(Object.entries({ kty, crv, x, y, n, e }).filter(([, v]) => v !== undefined))
-}
-
-// SD-JWT VC Type Metadata for a dc+sd-jwt configuration, built from its
-// credential_metadata.display so the names live in one place. Older drafts
-// called the display language `lang`, newer ones `locale`; both are given.
-export function typeMetadata(configuration) {
-  const display = (configuration.credential_metadata?.display ?? []).map(({ name, description, locale }) => ({
-    ...(locale ? { locale, lang: locale } : {}),
-    name,
-    ...(description ? { description } : {}),
-  }))
-  return { vct: configuration.vct, ...(display[0]?.name ? { name: display[0].name } : {}), display }
 }
