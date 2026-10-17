@@ -1,15 +1,22 @@
-export function createMetadataHandler({ credentialIssuer, credentialConfigurationsSupported }) {
+// The document builders are shared with the OpenID Federation Entity
+// Configuration (src/federation.js), which embeds both, so there is one
+// source for what this service says about itself.
+export function issuerMetadata({ credentialIssuer, credentialConfigurationsSupported }) {
+  return {
+    credential_issuer: credentialIssuer,
+    credential_endpoint: `${credentialIssuer}/credential`,
+    token_endpoint: `${credentialIssuer}/token`,
+    // Required whenever a credential_configurations_supported entry
+    // declares proof_types_supported (OID4VCI 1.0 Section 12.2.4) - this
+    // service always requires a proof, so it always advertises this.
+    nonce_endpoint: `${credentialIssuer}/nonce`,
+    credential_configurations_supported: credentialConfigurationsSupported,
+  }
+}
+
+export function createMetadataHandler(options) {
   return function metadataHandler(req, res) {
-    res.json({
-      credential_issuer: credentialIssuer,
-      credential_endpoint: `${credentialIssuer}/credential`,
-      token_endpoint: `${credentialIssuer}/token`,
-      // Required whenever a credential_configurations_supported entry
-      // declares proof_types_supported (OID4VCI 1.0 Section 12.2.4) - this
-      // service always requires a proof, so it always advertises this.
-      nonce_endpoint: `${credentialIssuer}/nonce`,
-      credential_configurations_supported: credentialConfigurationsSupported,
-    })
+    res.json(issuerMetadata(options))
   }
 }
 
@@ -26,19 +33,23 @@ export function createMetadataHandler({ credentialIssuer, credentialConfiguratio
 //
 // `/.well-known/openid-configuration` is served from the same document
 // because it is the conventional fallback a wallet tries next.
-export function createAuthorizationServerMetadataHandler({ credentialIssuer }) {
+export function authorizationServerMetadata({ credentialIssuer }) {
+  return {
+    issuer: credentialIssuer,
+    token_endpoint: `${credentialIssuer}/token`,
+    // Pre-authorized code is the only flow this service implements: there
+    // is no authorization endpoint, so no `response_types_supported` and
+    // no authorization_code grant to advertise.
+    grant_types_supported: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
+    // The token endpoint takes the pre-authorized code itself as the
+    // credential; it authenticates no client.
+    token_endpoint_auth_methods_supported: ['none'],
+    'pre-authorized_grant_anonymous_access_supported': true,
+  }
+}
+
+export function createAuthorizationServerMetadataHandler(options) {
   return function authorizationServerMetadataHandler(req, res) {
-    res.json({
-      issuer: credentialIssuer,
-      token_endpoint: `${credentialIssuer}/token`,
-      // Pre-authorized code is the only flow this service implements: there
-      // is no authorization endpoint, so no `response_types_supported` and
-      // no authorization_code grant to advertise.
-      grant_types_supported: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
-      // The token endpoint takes the pre-authorized code itself as the
-      // credential; it authenticates no client.
-      token_endpoint_auth_methods_supported: ['none'],
-      'pre-authorized_grant_anonymous_access_supported': true,
-    })
+    res.json(authorizationServerMetadata(options))
   }
 }

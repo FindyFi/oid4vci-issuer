@@ -13,7 +13,7 @@ export const DC_SD_JWT = 'dc+sd-jwt'
 export const SD_JWT_FORMATS = [VC_SD_JWT, DC_SD_JWT]
 
 // Claims this service sets itself; a coordinator must not supply them.
-const RESERVED_DC_CLAIMS = ['iss', 'iat', 'nbf', 'exp', 'cnf', '_sd', '_sd_alg', 'vct#integrity']
+const RESERVED_DC_CLAIMS = ['iss', 'iat', 'nbf', 'exp', 'cnf', '_sd', '_sd_alg', 'vct#integrity', 'fed']
 
 function issuerOf(vc) {
   return typeof vc.issuer === 'string' ? vc.issuer : vc.issuer?.id
@@ -56,11 +56,12 @@ export function checkSdJwtCredential(credential, configuration, { issuer }) {
 
 // Returns a compact SD-JWT, `<jws>~`. The payload is the credential
 // unchanged plus `iss`, `iat`, `cnf` (when binding), `vct#integrity` (from
-// the configuration, see src/vct-integrity.js) and, for a vc+sd-jwt
+// the configuration, see src/vct-integrity.js), `fed` (dc+sd-jwt, when
+// federation is on) and, for a vc+sd-jwt
 // with `validFrom`, `nbf`. With no disclosure frame the library adds
 // neither `_sd` nor `_sd_alg`. The header carries `x5c` when a certificate
 // chain is configured (see src/x5c.js).
-export async function signSdJwt(credential, configuration, { issuer, key, x5c }, { holderJwk } = {}) {
+export async function signSdJwt(credential, configuration, { issuer, key, x5c, fed }, { holderJwk } = {}) {
   const sdjwt = new SDJwtInstance({
     // key.sign is a local key or KMS (src/keys.js); the library wants base64url.
     signer: async (data) => Buffer.from(await key.sign(Buffer.from(data))).toString('base64url'),
@@ -75,6 +76,8 @@ export async function signSdJwt(credential, configuration, { issuer, key, x5c },
   if (configuration.format === DC_SD_JWT && configuration['vct#integrity']) {
     payload['vct#integrity'] = configuration['vct#integrity']
   }
+  // The OpenID Federation Entity Identifier, when federation is on (DIIP).
+  if (configuration.format === DC_SD_JWT && fed) payload.fed = fed
   if (bindsHolder(configuration)) {
     if (!holderJwk) throw new Error('Holder binding needs the public key from the proof JWT.')
     payload.cnf = { jwk: publicJwk(holderJwk) }

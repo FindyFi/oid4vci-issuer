@@ -37,5 +37,11 @@ services:
       # to start without it. "generate" mints a fresh key on every start, like
       # TENANT_SEED_TEST above: local dev only.
       SD_JWT_SIGNING_KEY: generate
+      # OpenID Federation Entity Configuration, off unless set. Run
+      # `npm run federation:setup` to put these in .env, which compose reads
+      # (see "OpenID Federation" in the README).
+      FEDERATION_ENTITY_METADATA: ${FEDERATION_ENTITY_METADATA:-}
+      FEDERATION_AUTHORITY_HINTS: ${FEDERATION_AUTHORITY_HINTS:-}
+      FEDERATION_TRUST_MARKS: ${FEDERATION_TRUST_MARKS:-}
     depends_on:
       - signing-service

@@ -80,6 +80,10 @@ optional only because they matter just for `ldp_vc`; set all three wherever
 | `SD_JWT_PREVIOUS_KEYS` | no | After a key rotation: a JSON array of the earlier keys' **public** JWKs. They stay in `/.well-known/jwt-vc-issuer` after the current key, so credentials they signed keep verifying. See "Production keys" below. |
 | `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. `scripts/self-signed-x5c.js` makes a stored one. |
 | `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
+| `FEDERATION_ENTITY_METADATA` | no | Turns on the OpenID Federation Entity Configuration (see "OpenID Federation" below): a JSON object with a required `display_name`. Make it with `npm run federation:setup`. Needs `SD_JWT_SIGNING_KEY`, and `SD_JWT_ISSUER` (if set) must equal `CREDENTIAL_ISSUER`. |
+| `FEDERATION_AUTHORITY_HINTS` | no | JSON array of https entity IDs of the trust anchor or intermediates above this issuer. |
+| `FEDERATION_TRUST_MARKS` | no | JSON array of trust marks, published as-is. |
+| `FEDERATION_ENTITY_CONFIGURATION_TTL` | no | Seconds the Entity Configuration is valid. Default 86400. |
 | `SIGNING_SERVICE_URL`, `SIGNING_SERVICE_INSTANCE`, `SIGNING_SERVICE_SUITE` | if a configuration has format `ldp_vc` | Where to forward `ldp_vc` signing. |
 | `COORDINATOR_TOKEN` | production (required, secret) | Shared secret for offer creation. |
 | `PORT` | no | Defaults to 4007. |
@@ -178,6 +182,84 @@ The service refuses to start without `CREDENTIAL_ISSUER`, or with
 unparseable `CREDENTIAL_CONFIGURATIONS_SUPPORTED`, rather than coming up in a
 state that would fail later against a real wallet.
 
+## OpenID Federation
+
+Set `FEDERATION_ENTITY_METADATA` and the service publishes an OpenID
+Federation 1.0 Entity Configuration at `/.well-known/openid-federation`. It
+is one document that serves both
+[DIIP v5](https://fidescommunity.github.io/DIIP/#credential-issuance) and the
+OpenID Federation Wallet Architectures profile ("Credential Verifiers
+Establishing Trust in Credential Issuers"): a compact JWS (`typ`
+`entity-statement+jwt`, content type `application/entity-statement+jwt`) with
+
+- `iss` = `sub` = `CREDENTIAL_ISSUER`, the Entity Identifier, plus `iat`,
+  `exp` and a root `jwks` (a JWK Set) with the key that signs it;
+- `metadata.federation_entity`: your `FEDERATION_ENTITY_METADATA`;
+- `metadata.openid_credential_issuer`: the issuer metadata, plus `jwks` with the
+  credential-signing keys;
+- `metadata.vc_issuer.jwks`: the same keys, where DIIP looks for them (their
+  `kid` is the SD-JWT header's `kid`);
+- `metadata.oauth_authorization_server`: the RFC 8414 metadata;
+- `authority_hints` and `trust_marks`, when configured.
+
+Credentials in the `dc+sd-jwt` format also get a `fed` claim with the Entity
+Identifier (coordinators must not send it).
+
+The Entity Configuration is signed with `SD_JWT_SIGNING_KEY`, so the root
+`jwks` and the credential keys are the same. The code takes the federation
+key as a separate input (`federation.key` in `index.js`), so giving it its own
+`FEDERATION_SIGNING_KEY` later is a small change. You would want that if a
+trust anchor pins your federation key and you rotate the credential key.
+
+The service refuses to start if federation is on but there's no
+`SD_JWT_SIGNING_KEY`, if `SD_JWT_ISSUER` differs from `CREDENTIAL_ISSUER`, or if
+any `FEDERATION_*` value is invalid (no `display_name`, a hint that isn't an
+https URL, ...).
+
+### Making the `FEDERATION_*` values
+
+You don't have to write the JSON yourself. The script asks for the values
+and prints (or writes) ready-to-use lines:
+
+```sh
+npm run federation:setup        # asks questions, then adds the lines to ./.env
+node scripts/federation-metadata.js     # same questions, only prints the lines
+```
+
+```
+Display name, e.g. "Example University": Example University
+Organization name, e.g. the legal name (optional, Enter to skip): Example University Oy
+Contacts (e-mail addresses or URLs), comma separated (optional, Enter to skip): it@example.org
+...
+FEDERATION_ENTITY_METADATA='{"display_name":"Example University","organization_name":"Example University Oy","contacts":["it@example.org"]}'
+```
+
+Options (they skip the questions when `--display-name` is given):
+
+| Option | |
+|--------|---|
+| `--write [file]` | Put the lines in an env file (default `.env`): an existing `FEDERATION_*` line, or a commented-out one, is replaced in place, and the rest are appended. The file is created if needed. |
+| `--json` | Print only the metadata JSON, for a secret store or a Terraform variable. |
+| `--display-name`, `--organization-name`, `--homepage-uri`, `--logo-uri`, `--policy-uri` | The values. Every URL must be https. |
+| `--contact`, `--authority-hint` | May be repeated. |
+
+The `NAME='<json>'` form reads the same in `.env` (dotenv), Docker Compose
+and a POSIX shell. A single quote inside a value is written as the JSON
+escape `\u0027`, so it can't break the quoting. `FEDERATION_TRUST_MARKS` isn't
+asked for, because trust marks come from the party that issues them: paste
+the JSON array they gave you into the variable.
+
+For the Docker Compose stack, `docker compose` reads `.env` next to
+`docker-compose.yml` and passes the `FEDERATION_*` values on to the service,
+so run the script there and restart. Check the result with
+
+```sh
+curl -s http://localhost:4007/.well-known/openid-federation | cut -d. -f2 | base64 -d 2>/dev/null | jq .
+```
+
+Whether a trust anchor will accept the entity is up to its registration
+process, which this service doesn't take part in.
+
 ## Running locally
 
 ```sh
@@ -226,7 +308,7 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
   (`issuer`, or `issuer.id`) isn't exactly the SD-JWT issuer URL, or if
   `validFrom` isn't a date-time. For a `dc+sd-jwt` configuration it returns
   400 if `vct` isn't the configuration's, or if the claims contain any of
-  `iss`, `iat`, `nbf`, `exp`, `cnf`, `_sd`, `_sd_alg` or `vct#integrity`. Nothing is
+  `iss`, `iat`, `nbf`, `exp`, `cnf`, `_sd`, `_sd_alg`, `vct#integrity` or `fed`. Nothing is
   overwritten silently.
 
 Wallet-facing (public):
@@ -239,7 +321,10 @@ Wallet-facing (public):
   pre-authorized code grant, with anonymous access.
 - `GET /.well-known/openid-configuration` — the same RFC 8414 document, for
   wallets that fall back to this path. It is not an OpenID Federation Entity
-  Configuration.
+  Configuration (that is `/.well-known/openid-federation`).
+- `GET /.well-known/openid-federation` — only when `FEDERATION_ENTITY_METADATA`
+  is set. The OpenID Federation Entity Configuration, a signed JWT. See "OpenID
+  Federation" above.
 - `GET /.well-known/jwt-vc-issuer` — only when SD-JWT signing is configured.
   JWT VC Issuer Metadata: `{ "issuer": <issuer URL>, "jwks": { "keys": [<public JWK with kid, alg, use: "sig">] } }`.
   Verifiers use it to find the key for an SD-JWT's `iss` and `kid`.
