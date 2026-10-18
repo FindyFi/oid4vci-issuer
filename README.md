@@ -11,7 +11,7 @@ signs depends on the credential configuration's `format`:
 
 | `format` | Signed by | Credential returned to the wallet |
 |----------|-----------|-----------------------------------|
-| `dc+sd-jwt` | this service, with its own ES256 key (`SD_JWT_SIGNING_KEY`) | an IETF SD-JWT VC: the coordinator's flat claims (with `vct`) plus `iss`, `iat` and `cnf`, no disclosures: `<jws>~` |
+| `dc+sd-jwt` | this service, with its own ES256 key (`SD_JWT_SIGNING_KEY`) | an IETF SD-JWT VC: the coordinator's flat claims (with `vct`) plus `iss`, `iat` and `cnf`. The claims the offer lists in `disclosable` are selectively disclosable (`<jws>~<disclosure>~…~`); with none, `<jws>~` |
 | `vc+sd-jwt` | this service, with its own ES256 key (`SD_JWT_SIGNING_KEY`) | a W3C VCDM 2.0 credential secured as an SD-JWT with no disclosures: `<jws>~` |
 | `ldp_vc` | a [`digitalcredentials/signing-service`](https://github.com/digitalcredentials/signing-service) instance | the JSON-LD credential with a Data Integrity `proof` |
 
@@ -302,7 +302,7 @@ published JWKS. `test/startup.test.js` covers configuration errors and key loadi
 
 Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKEN`):
 
-- `POST /instance/:tenant/offers` — body `{ credentialConfigurationId, unsignedCredential, txCode? }`.
+- `POST /instance/:tenant/offers` — body `{ credentialConfigurationId, unsignedCredential, txCode?, disclosable? }`.
   Returns `{ preAuthorizedCode, txCode, offerUri, expiresIn }`. `offerUri` is
   an `openid-credential-offer://` link, ready to render as a QR code or deep
   link. Returns 400 if `credentialConfigurationId` isn't configured. For a
@@ -312,6 +312,13 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
   400 if `vct` isn't the configuration's, or if the claims contain any of
   `iss`, `iat`, `nbf`, `exp`, `cnf`, `_sd`, `_sd_alg`, `vct#integrity` or `fed`. Nothing is
   overwritten silently.
+  `disclosable` (`dc+sd-jwt` only) is an array of top-level claim names to
+  make selectively disclosable, such as `["sub", "identifier"]`: they leave
+  the payload for `_sd` digests (`_sd_alg: "sha-256"`) and travel as
+  disclosures, so the holder decides whether to present them. The offer is
+  rejected with 400 if the list names a claim that isn't in the credential,
+  repeats one, names `vct` or `status` (SD-JWT VC keeps those always
+  disclosed), or is sent for any other format.
 
 Wallet-facing (public):
 

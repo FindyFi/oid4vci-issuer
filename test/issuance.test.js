@@ -294,8 +294,8 @@ test('an offer for an unknown credential configuration is rejected with 400', as
 
 const dcClaims = { vct: VCT, sub: 'urn:x:subject', awarded_on: '2024-06-01', achievement: { id: 'urn:x:a', name: 'A' } }
 
-async function issueDc(claims = dcClaims) {
-  const { res, body: created } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims })
+async function issueDc(claims = dcClaims, disclosable) {
+  const { res, body: created } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims, disclosable })
   assert.equal(res.status, 200, JSON.stringify(created))
   const { token, proof } = await redeem(created)
   const credRes = await credentialRequest(token.access_token, proof, DC_CONFIG_ID)
@@ -319,6 +319,58 @@ test('dc+sd-jwt: a wrong vct or an issuer-owned claim is rejected with 400', asy
   for (const claims of [{ ...dcClaims, vct: 'https://other.example/vct' }, { ...dcClaims, iss: ISSUER }, { ...dcClaims, cnf: {} }]) {
     const { res } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims })
     assert.equal(res.status, 400)
+  }
+})
+
+const nameIdentifier = [{ hashed: false, identityType: 'name', identityHash: 'Maija Meikäläinen' }]
+
+test('dc+sd-jwt: disclosable claims become disclosures, and a holder can leave them out', async () => {
+  const claims = { ...dcClaims, identifier: nameIdentifier }
+  const { sdJwt } = await issueDc(claims, ['sub', 'identifier'])
+  const parts = sdJwt.split('~')
+  assert.equal(parts.length, 4, 'jws, two disclosures, empty key binding')
+  assert.equal(parts.at(-1), '')
+
+  const { jwks } = await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()
+  const { payload } = await jwtVerify(parts[0], createLocalJWKSet(jwks), { issuer: ISSUER, typ: 'dc+sd-jwt' })
+  assert.equal(payload._sd_alg, 'sha-256')
+  assert.equal(payload._sd.length, 2)
+  for (const claim of ['sub', 'identifier']) assert.equal(claim in payload, false, claim)
+  assert.equal(payload.vct, VCT)
+  assert.deepEqual(payload.achievement, dcClaims.achievement)
+
+  // A wallet sees every claim; a presentation with only the name leaves `sub` out.
+  const sdjwt = new SDJwtInstance({ verifier: await ES256.getVerifier(jwks.keys[0]), hasher: digest })
+  const all = await sdjwt.getClaims(sdJwt)
+  const { iss, iat, cnf, _sd, _sd_alg, ...rest } = all
+  assert.deepEqual(rest, claims)
+  const presentation = await sdjwt.present(sdJwt, { identifier: true })
+  const { payload: shown } = await sdjwt.verify(presentation)
+  assert.deepEqual(shown.identifier, nameIdentifier)
+  assert.equal('sub' in shown, false)
+})
+
+test('dc+sd-jwt: an empty disclosable list issues no disclosures', async () => {
+  const { sdJwt } = await issueDc(dcClaims, [])
+  assert.match(sdJwt, /^[\w-]+\.[\w-]+\.[\w-]+~$/)
+  assert.equal('_sd' in decodeJwtPayload(sdJwt), false)
+})
+
+test('a bad disclosable list is rejected with 400', async () => {
+  const cases = [
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, disclosable: 'sub' },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, disclosable: [1] },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, disclosable: ['sub', 'sub'] },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, disclosable: ['identifier'] },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, disclosable: ['vct'] },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: { ...dcClaims, status: {} }, disclosable: ['status'] },
+    { credentialConfigurationId: SD_JWT_CONFIG_ID, unsignedCredential: vcdm2Credential, disclosable: ['credentialSubject'] },
+    { credentialConfigurationId: CONFIG_ID, unsignedCredential, disclosable: [] },
+  ]
+  for (const body of cases) {
+    const { res, body: error } = await createOffer(body)
+    assert.equal(res.status, 400, JSON.stringify(body.disclosable))
+    assert.match(error.error, /disclos/)
   }
 })
 
