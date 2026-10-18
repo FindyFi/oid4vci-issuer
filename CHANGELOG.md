@@ -9,6 +9,8 @@ version to pin.
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-10-18
+
 ### Added
 
 - Selective disclosure for `dc+sd-jwt`: an offer may list top-level claim names in `disclosable`, and
