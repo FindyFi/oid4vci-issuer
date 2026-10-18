@@ -14,7 +14,11 @@ export function createSigners({ credentialConfigurationsSupported, signLdpVc, sd
       if (!signLdpVc) {
         throw new Error(`Credential configuration ${id} has format ldp_vc, but the signing service is not configured (set SIGNING_SERVICE_URL and SIGNING_SERVICE_INSTANCE).`)
       }
-      byConfigurationId[id] = { sign: (vc) => signLdpVc(vc), check: () => undefined }
+      byConfigurationId[id] = {
+        sign: (vc) => signLdpVc(vc),
+        check: (vc, { disclosable } = {}) =>
+          disclosable === undefined ? undefined : 'disclosable is only supported for dc+sd-jwt configurations.',
+      }
     } else if (SD_JWT_FORMATS.includes(format)) {
       if (!sdJwt?.key || !sdJwt?.issuer) {
         throw new Error(`Credential configuration ${id} has format ${format}, but no SD-JWT signing key is configured (set SD_JWT_SIGNING_KEY).`)
@@ -22,8 +26,8 @@ export function createSigners({ credentialConfigurationsSupported, signLdpVc, sd
       const problem = checkSdJwtConfiguration(configuration)
       if (problem) throw new Error(`Credential configuration ${id}: ${problem}`)
       byConfigurationId[id] = {
-        sign: (credential, holder) => signSdJwt(credential, configuration, sdJwt, holder),
-        check: (credential) => checkSdJwtCredential(credential, configuration, sdJwt),
+        sign: (credential, options) => signSdJwt(credential, configuration, sdJwt, options),
+        check: (credential, options) => checkSdJwtCredential(credential, configuration, sdJwt, options),
       }
     } else {
       throw new Error(`Credential configuration ${id} has unsupported format ${format}.`)
@@ -32,14 +36,16 @@ export function createSigners({ credentialConfigurationsSupported, signLdpVc, sd
 
   return {
     // Returns an error message for an offer this service can't issue, or undefined.
-    checkOffer(credentialConfigurationId, unsignedCredential) {
+    // `options` is `{ disclosable }` from the offer.
+    checkOffer(credentialConfigurationId, unsignedCredential, options) {
       const signer = byConfigurationId[credentialConfigurationId]
       if (!signer) return `Unknown credentialConfigurationId: ${credentialConfigurationId}.`
-      return signer.check(unsignedCredential)
+      return signer.check(unsignedCredential, options)
     },
-    // `holder` is `{ holderJwk }`, the public key from the verified proof JWT.
-    sign(credentialConfigurationId, unsignedCredential, holder) {
-      return byConfigurationId[credentialConfigurationId].sign(unsignedCredential, holder)
+    // `options` is `{ holderJwk, disclosable }`: the public key from the
+    // verified proof JWT, and the offer's disclosable claims.
+    sign(credentialConfigurationId, unsignedCredential, options) {
+      return byConfigurationId[credentialConfigurationId].sign(unsignedCredential, options)
     },
   }
 }

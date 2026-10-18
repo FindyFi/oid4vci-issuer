@@ -9,6 +9,14 @@ version to pin.
 
 ## [Unreleased]
 
+### Added
+
+- Selective disclosure for `dc+sd-jwt`: an offer may list top-level claim names in `disclosable`, and
+  those claims are issued as SD-JWT disclosures (`_sd`, `_sd_alg: sha-256`) instead of plain claims.
+  Without `disclosable` the credential is unchanged (`<jws>~`). The list is checked when the offer is
+  created: unknown, repeated or always-disclosed claims (`vct`, `status`), or a `disclosable` for any
+  other format, are rejected with 400.
+
 ## [0.0.3] - 2026-10-17
 
 ### Added
