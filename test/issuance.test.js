@@ -56,7 +56,9 @@ async function createOffer(body = { credentialConfigurationId: CONFIG_ID, unsign
 }
 
 // Fake wallet: fetch offer -> token -> nonce -> proof JWT -> credential request.
-async function redeem({ preAuthorizedCode, txCode }) {
+// `keyAs: 'did:jwk'` names the proof key by a did:jwk kid instead of a jwk
+// header; `audience` overrides the proof's aud.
+async function redeem({ preAuthorizedCode, txCode }, { keyAs = 'jwk', audience = ISSUER } = {}) {
   const offerRes = await fetch(`${base}/instance/t1/offers/${preAuthorizedCode}`)
   const offer = await offerRes.json()
   const grant = offer.grants[GRANT_TYPE]
@@ -72,14 +74,17 @@ async function redeem({ preAuthorizedCode, txCode }) {
 
   const { publicKey, privateKey } = await generateKeyPair('ES256')
   const jwk = await exportJWK(publicKey)
+  const keyHeader = keyAs === 'did:jwk' ? { kid: `${didJwk(jwk)}#0` } : { jwk }
   const proof = await new SignJWT({ nonce })
-    .setProtectedHeader({ alg: 'ES256', typ: 'openid4vci-proof+jwt', jwk })
-    .setAudience(ISSUER)
+    .setProtectedHeader({ alg: 'ES256', typ: 'openid4vci-proof+jwt', ...keyHeader })
+    .setAudience(audience)
     .setIssuedAt()
     .sign(privateKey)
 
-  return { offer, tokenRes, token, nonce, proof }
+  return { offer, tokenRes, token, nonce, proof, jwk }
 }
+
+const didJwk = (jwk) => `did:jwk:${Buffer.from(JSON.stringify(jwk)).toString('base64url')}`
 
 function credentialRequest(accessToken, proof, configId = CONFIG_ID) {
   return fetch(`${base}/credential`, {
@@ -294,13 +299,13 @@ test('an offer for an unknown credential configuration is rejected with 400', as
 
 const dcClaims = { vct: VCT, sub: 'urn:x:subject', awarded_on: '2024-06-01', achievement: { id: 'urn:x:a', name: 'A' } }
 
-async function issueDc(claims = dcClaims, disclosable) {
+async function issueDc(claims = dcClaims, disclosable, wallet) {
   const { res, body: created } = await createOffer({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: claims, disclosable })
   assert.equal(res.status, 200, JSON.stringify(created))
-  const { token, proof } = await redeem(created)
+  const { token, proof, jwk } = await redeem(created, wallet)
   const credRes = await credentialRequest(token.access_token, proof, DC_CONFIG_ID)
-  assert.equal(credRes.status, 200)
-  return { sdJwt: (await credRes.json()).credentials[0].credential, proof }
+  assert.equal(credRes.status, 200, JSON.stringify(await credRes.clone().json()))
+  return { sdJwt: (await credRes.json()).credentials[0].credential, proof, jwk }
 }
 
 test('dc+sd-jwt: flat claims plus iss, iat and cnf with the proof key, no disclosures', async () => {
@@ -382,3 +387,58 @@ test('vc+sd-jwt binds the holder only when its configuration lists jwk', async (
 function decodeJwtPayload(sdJwt) {
   return JSON.parse(Buffer.from(sdJwt.split('.')[1], 'base64url'))
 }
+
+// Wallet tolerance (README, "Interoperability"): each test names the wallet that needed it.
+
+test('UniMe: a proof naming its key by a did:jwk kid binds the credential to that key and DID URL', async () => {
+  const { sdJwt, proof, jwk } = await issueDc(dcClaims, undefined, { keyAs: 'did:jwk' })
+  assert.equal('jwk' in decodeProtectedHeader(proof), false)
+  assert.deepEqual(decodeJwtPayload(sdJwt).cnf, { jwk, kid: `${didJwk(jwk)}#0` })
+})
+
+test('a proof kid that is not a did:jwk, or a did:jwk without a public key, is rejected as invalid_proof', async () => {
+  const { privateKey } = await generateKeyPair('ES256')
+  for (const kid of ['did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK#z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK', 'did:jwk:bm90LWpzb24#0', 'some-key-id']) {
+    const { body: created } = await createOffer()
+    const { token, nonce } = await redeem(created)
+    const proof = await new SignJWT({ nonce }).setProtectedHeader({ alg: 'ES256', typ: 'openid4vci-proof+jwt', kid }).setAudience(ISSUER).setIssuedAt().sign(privateKey)
+    const res = await credentialRequest(token.access_token, proof)
+    assert.equal(res.status, 400, kid)
+    assert.equal((await res.json()).error, 'invalid_proof', kid)
+  }
+})
+
+test('UniMe: a proof aud with a trailing slash is accepted, another aud is not', async () => {
+  await issueDc(dcClaims, undefined, { audience: `${ISSUER}/` })
+  const { body: created } = await createOffer()
+  const { token, proof } = await redeem(created, { audience: `${ISSUER}/other` })
+  const res = await credentialRequest(token.access_token, proof)
+  assert.equal(res.status, 400)
+  assert.equal((await res.json()).error, 'invalid_proof')
+})
+
+test('the access token is accepted with the token_type /token returns ("bearer", any case)', async () => {
+  const { body: created } = await createOffer()
+  const { token, proof } = await redeem(created)
+  const res = await fetch(`${base}/credential`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `${token.token_type} ${token.access_token}` },
+    body: JSON.stringify({ credential_configuration_id: CONFIG_ID, proofs: { jwt: [proof] } }),
+  })
+  assert.equal(res.status, 200)
+})
+
+test('UniMe: /.well-known/did.json is a did:web document with the credential-signing keys', async () => {
+  const res = await fetch(`${base}/.well-known/did.json`)
+  assert.equal(res.status, 200)
+  const doc = await res.json()
+  const did = 'did:web:issuer.example'
+  const { jwks } = await (await fetch(`${base}/.well-known/jwt-vc-issuer`)).json()
+  assert.equal(doc.id, did)
+  assert.deepEqual(doc.verificationMethod, jwks.keys.map((publicKeyJwk) => ({ id: `${did}#${publicKeyJwk.kid}`, type: 'JsonWebKey2020', controller: did, publicKeyJwk })))
+  assert.deepEqual(doc.assertionMethod, doc.verificationMethod.map(({ id }) => id))
+  assert.deepEqual(doc.authentication, doc.assertionMethod)
+  // The SD-JWT header kid is the fragment of a verification method.
+  const { sdJwt } = await issueDc()
+  assert.ok(doc.assertionMethod.includes(`${did}#${decodeProtectedHeader(sdJwt).kid}`))
+})
