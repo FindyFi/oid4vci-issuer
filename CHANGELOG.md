@@ -15,6 +15,12 @@ version to pin.
   credential-signing keys (the JWKS keys, `kid` as the fragment). Credentials keep the HTTPS URL as
   `iss`. UniMe requires the document from every OID4VCI issuer.
 - README "Interoperability": the robustness principle and the list of tolerated wallet behaviour.
+- `authorization_endpoint` in the authorization server metadata (and in the Entity Configuration's
+  `oauth_authorization_server`), and `GET /authorize`, which always answers
+  `unsupported_response_type` with a 400 and never redirects. Toppan rejects the metadata without
+  an authorization endpoint.
+- `response_types_supported: []` in the authorization server metadata (RFC 8414 requires the member;
+  no response type is supported).
 
 ### Changed
 

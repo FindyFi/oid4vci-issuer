@@ -191,6 +191,29 @@ test('authorization server metadata names the token endpoint and the pre-authori
   assert.equal(meta['pre-authorized_grant_anonymous_access_supported'], true)
 })
 
+test('Toppan: authorization server metadata has an authorization_endpoint and no response types', async () => {
+  const meta = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json()
+  assert.equal(meta.authorization_endpoint, `${ISSUER}/authorize`)
+  assert.deepEqual(meta.response_types_supported, [])
+})
+
+// No client registry, so no redirect_uri is ever trusted: the error is a 400,
+// never a redirect (RFC 6749 section 4.1.2.1), or this is an open redirector.
+test('Toppan: /authorize answers unsupported_response_type and never redirects', async () => {
+  const query = new URLSearchParams({
+    response_type: 'code',
+    client_id: 'wallet',
+    redirect_uri: 'https://attacker.example/callback',
+    state: 's',
+  })
+  for (const path of ['/authorize', `/authorize?${query}`]) {
+    const res = await fetch(`${base}${path}`, { redirect: 'manual' })
+    assert.equal(res.status, 400)
+    assert.equal(res.headers.get('location'), null)
+    assert.equal((await res.json()).error, 'unsupported_response_type')
+  }
+})
+
 // The discovery fallback wallets try after oauth-authorization-server. It is
 // RFC 8414 metadata, not an OpenID Federation Entity Configuration.
 test('openid-configuration serves the same authorization server metadata', async () => {
