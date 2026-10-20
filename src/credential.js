@@ -90,6 +90,7 @@ export function createCredentialHandler({
         holderJwk: verified.holderJwk,
         holderKid: verified.holderKid,
         disclosable: offer.disclosable,
+        validUntil: offer.validUntil,
       })
       // Section 8.3: immediate issuance is a 200 with a `credentials` array of
       // objects, each holding one `credential`; there is no top-level

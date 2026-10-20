@@ -348,7 +348,7 @@ published JWKS. `test/startup.test.js` covers configuration errors and key loadi
 
 Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKEN`):
 
-- `POST /instance/:tenant/offers` — body `{ credentialConfigurationId, unsignedCredential, txCode?, disclosable? }`.
+- `POST /instance/:tenant/offers` — body `{ credentialConfigurationId, unsignedCredential, txCode?, disclosable?, validUntil? }`.
   Returns `{ preAuthorizedCode, txCode, offerUri, expiresIn }`. `offerUri` is
   an `openid-credential-offer://` link, ready to render as a QR code or deep
   link. Returns 400 if `credentialConfigurationId` isn't configured. For a
@@ -365,6 +365,11 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
   rejected with 400 if the list names a claim that isn't in the credential,
   repeats one, names `vct` or `status` (SD-JWT VC keeps those always
   disclosed), or is sent for any other format.
+  `validUntil` (SD-JWT only) is an ISO 8601 date-time at which the credential
+  expires: the issuer sets `exp` from it. A `vc+sd-jwt` credential's own
+  `validUntil` sets `exp` too, and when both are sent they must be the same.
+  The offer is rejected with 400 if a `validUntil` isn't a date-time, has
+  passed, or is sent for `ldp_vc` (which carries its own expiry).
 
 Wallet-facing (public):
 
