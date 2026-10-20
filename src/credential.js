@@ -14,8 +14,10 @@ export function createCredentialHandler({
   credentialConfigurationsSupported = {},
 }) {
   return async function credentialHandler(req, res) {
+    // The scheme is case-insensitive (RFC 7235 section 2.1), and /token says
+    // `token_type: "bearer"`, which a wallet may echo as it is.
     const auth = req.get('authorization') || ''
-    const [, accessToken] = auth.match(/^Bearer (.+)$/) || []
+    const [, accessToken] = auth.match(/^bearer +(.+)$/i) || []
     if (!accessToken) return res.status(401).json({ error: 'invalid_token' })
 
     const tokenEntry = store.get(tokenKey(accessToken))
@@ -82,7 +84,8 @@ export function createCredentialHandler({
 
     try {
       const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential, {
-        holderJwk: verified.header.jwk,
+        holderJwk: verified.holderJwk,
+        holderKid: verified.holderKid,
         disclosable: offer.disclosable,
       })
       // Section 8.3: immediate issuance is a 200 with a `credentials` array of

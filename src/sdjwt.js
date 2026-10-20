@@ -84,7 +84,7 @@ function checkDisclosable(disclosable, credential) {
 // with `validFrom`, `nbf`. With no disclosure frame the library adds
 // neither `_sd` nor `_sd_alg`. The header carries `x5c` when a certificate
 // chain is configured (see src/x5c.js).
-export async function signSdJwt(credential, configuration, { issuer, key, x5c, fed }, { holderJwk, disclosable } = {}) {
+export async function signSdJwt(credential, configuration, { issuer, key, x5c, fed }, { holderJwk, holderKid, disclosable } = {}) {
   const sdjwt = new SDJwtInstance({
     // key.sign is a local key or KMS (src/keys.js); the library wants base64url.
     signer: async (data) => Buffer.from(await key.sign(Buffer.from(data))).toString('base64url'),
@@ -108,7 +108,10 @@ export async function signSdJwt(credential, configuration, { issuer, key, x5c, f
   }
   if (bindsHolder(configuration)) {
     if (!holderJwk) throw new Error('Holder binding needs the public key from the proof JWT.')
-    payload.cnf = { jwk: publicJwk(holderJwk) }
+    // A wallet that proved with a DID URL also gets it as `cnf.kid`, which DIIP
+    // v5 asks for; `cnf.jwk` stays for everyone else (RFC 7800 allows a kid
+    // next to the one key).
+    payload.cnf = { jwk: publicJwk(holderJwk), ...(holderKid ? { kid: holderKid } : {}) }
   }
   const header = { typ: configuration.format, kid: key.kid, ...(x5c ? { x5c } : {}) }
   const frame = configuration.format === DC_SD_JWT && disclosable?.length ? { _sd: disclosable } : undefined

@@ -8,6 +8,7 @@ import { createAuthorizationServerMetadataHandler, createMetadataHandler } from 
 import { requireCoordinatorToken } from './auth.js'
 import { createSigners } from './signers.js'
 import { createJwtVcIssuerHandler } from './jwt-vc-issuer.js'
+import { createDidDocumentHandler } from './did-web.js'
 import { checkFederationSetup, createEntityConfigurationHandler } from './federation.js'
 
 // Builds the Express app from explicit config, without reading the
@@ -66,6 +67,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   app.get('/.well-known/oauth-authorization-server', authorizationServerMetadataHandler)
   app.get('/.well-known/openid-configuration', authorizationServerMetadataHandler)
   if (sdJwt) app.get('/.well-known/jwt-vc-issuer', createJwtVcIssuerHandler(sdJwt))
+  if (sdJwt) app.get('/.well-known/did.json', createDidDocumentHandler({ credentialIssuer, sdJwt }))
   if (federation) {
     app.get(
       '/.well-known/openid-federation',

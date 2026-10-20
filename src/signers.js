@@ -42,8 +42,9 @@ export function createSigners({ credentialConfigurationsSupported, signLdpVc, sd
       if (!signer) return `Unknown credentialConfigurationId: ${credentialConfigurationId}.`
       return signer.check(unsignedCredential, options)
     },
-    // `options` is `{ holderJwk, disclosable }`: the public key from the
-    // verified proof JWT, and the offer's disclosable claims.
+    // `options` is `{ holderJwk, holderKid, disclosable }`: the public key from
+    // the verified proof JWT (and its DID URL, if the wallet named it by
+    // one), and the offer's disclosable claims.
     sign(credentialConfigurationId, unsignedCredential, options) {
       return byConfigurationId[credentialConfigurationId].sign(unsignedCredential, options)
     },
