@@ -2,6 +2,7 @@ import express from 'express'
 import { createStore } from './store.js'
 import { createOfferHandlers } from './offers.js'
 import { createTokenHandler } from './token.js'
+import { authorizeHandler } from './authorize.js'
 import { createNonceHandler } from './nonce.js'
 import { createCredentialHandler } from './credential.js'
 import { createAuthorizationServerMetadataHandler, createMetadataHandler } from './metadata.js'
@@ -76,6 +77,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   }
   app.get('/instance/:tenant/offers/:code', getOffer)
   app.get('/instance/:tenant/offers/:code/status', getOfferStatus)
+  app.get('/authorize', authorizeHandler)
   app.post('/token', tokenHandler)
   app.post('/nonce', nonceHandler)
   app.post('/credential', credentialHandler)

@@ -36,10 +36,16 @@ export function createMetadataHandler(options) {
 export function authorizationServerMetadata({ credentialIssuer }) {
   return {
     issuer: credentialIssuer,
+    // Pre-authorized code is the only flow this service implements, so the
+    // authorization endpoint only answers with an error (src/authorize.js)
+    // and no response type is supported. RFC 8414 makes
+    // `authorization_endpoint` REQUIRED only when a grant uses it, but
+    // Toppan rejects metadata without one ("In valid authorization
+    // endpoint"); `response_types_supported` is REQUIRED, and the empty list
+    // says exactly what we support.
+    authorization_endpoint: `${credentialIssuer}/authorize`,
     token_endpoint: `${credentialIssuer}/token`,
-    // Pre-authorized code is the only flow this service implements: there
-    // is no authorization endpoint, so no `response_types_supported` and
-    // no authorization_code grant to advertise.
+    response_types_supported: [],
     grant_types_supported: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'],
     // The token endpoint takes the pre-authorized code itself as the
     // credential; it authenticates no client.

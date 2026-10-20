@@ -327,7 +327,9 @@ Wallet-facing (public):
 - `GET /.well-known/oauth-authorization-server` — OAuth 2.0 Authorization
   Server Metadata (RFC 8414). This service is its own authorization server, so
   1.0 wallets find `token_endpoint` here. It advertises only the
-  pre-authorized code grant, with anonymous access.
+  pre-authorized code grant, with anonymous access, and
+  `response_types_supported: []`. It also names `authorization_endpoint`,
+  for wallets that require one (see "Interoperability").
 - `GET /.well-known/openid-configuration` — the same RFC 8414 document, for
   wallets that fall back to this path. It is not an OpenID Federation Entity
   Configuration (that is `/.well-known/openid-federation`).
@@ -346,6 +348,10 @@ Wallet-facing (public):
 - `GET /instance/:tenant/offers/:code` — the hosted `credential_offer` JSON.
 - `GET /instance/:tenant/offers/:code/status` — `{ used: boolean }`, for a
   coordinator that wants to poll for pickup.
+- `GET /authorize` — always 400 `{ "error": "unsupported_response_type" }`:
+  there is no authorization code flow. It never redirects, not even to a
+  `redirect_uri` in the request, since no client is registered (RFC 6749
+  section 4.1.2.1). Wallets on the pre-authorized code flow never call it.
 - `POST /token` — pre-authorized_code grant (form-encoded, standard OAuth2
   token endpoint shape). Per 1.0 (unlike some pre-1.0 drafts), the response
   does **not** include `c_nonce` — get that from `/nonce` instead.
@@ -446,6 +452,7 @@ Each tolerance names the wallet that needed it, and has a test named after that 
 | A proof `aud` with one trailing slash more or less than the Credential Issuer Identifier. | App. F.1: `aud` MUST be the Credential Issuer Identifier | UniMe |
 | The access token with any case of the `Bearer` scheme, such as the `bearer` that `/token` returns as `token_type`. | RFC 7235 section 2.1: the scheme is case-insensitive | (found with a scripted wallet) |
 | A `did:web` document at `/.well-known/did.json`. | UniMe requires one for every OID4VCI issuer (its ADR 0001); DIIP v5 asks for `did:web` support | UniMe |
+| An `authorization_endpoint` in the authorization server metadata, although only the pre-authorized code grant is offered. `/authorize` answers `unsupported_response_type`. | RFC 8414: `authorization_endpoint` is REQUIRED unless no grant uses it | Toppan |
 | A pre-1.0 singular `proof: { proof_type: "jwt", jwt }` next to the 1.0 `proofs.jwt` array. | OID4VCI 1.0 section 8.2: `proofs` | pre-1.0 (draft 13) wallets |
 | A proof with both `jwk` and `kid`: `jwk` wins, and `kid` is taken as a plain key id. | App. F.1: `kid` MUST NOT be present with `jwk` | (by the principle) |
 
