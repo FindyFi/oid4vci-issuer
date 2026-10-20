@@ -118,6 +118,7 @@ describe('service basics', () => {
     assert.equal(metadata.token_endpoint, `${issuer.credentialIssuer}/token`)
     // Required because the configuration below declares proof_types_supported.
     assert.equal(metadata.nonce_endpoint, `${issuer.credentialIssuer}/nonce`)
+    assert.equal(metadata.notification_endpoint, `${issuer.credentialIssuer}/notification`)
     assert.ok(metadata.credential_configurations_supported[CREDENTIAL_CONFIGURATION_ID])
   })
 
@@ -470,5 +471,99 @@ describe('credential issuance', () => {
 
     const status = await fetch(url(`/instance/test/offers/${offer.preAuthorizedCode}/status`))
     assert.equal((await status.json()).used, true)
+  })
+})
+
+describe('notification endpoint', () => {
+  async function issue() {
+    const { body: offer } = await createOffer()
+    const { body: token } = await redeem(offer.preAuthorizedCode)
+    const { body } = await requestCredential({
+      accessToken: token.access_token,
+      proofJwt: await makeProof({ nonce: await requestNonce() }),
+    })
+    return { code: offer.preAuthorizedCode, accessToken: token.access_token, notificationId: body.notification_id }
+  }
+
+  async function notify(accessToken, body, scheme = 'Bearer') {
+    const res = await fetch(url('/notification'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(accessToken ? { authorization: `${scheme} ${accessToken}` } : {}) },
+      body: JSON.stringify(body),
+    })
+    return { res, body: res.status === 204 ? undefined : await res.json() }
+  }
+
+  async function status(code) {
+    return (await fetch(url(`/instance/test/offers/${code}/status`))).json()
+  }
+
+  test('gives each credential response its own notification_id', async () => {
+    const [a, b] = [await issue(), await issue()]
+    assert.match(a.notificationId, /^[0-9a-f-]{36}$/)
+    assert.notEqual(a.notificationId, b.notificationId)
+  })
+
+  // Procivis One notifies with the access token after storing the credential.
+  test('records the event on the offer status, and takes the same notification again (Procivis)', async () => {
+    const { code, accessToken, notificationId } = await issue()
+    assert.deepEqual(await status(code), { used: true })
+
+    const first = await notify(accessToken, { notification_id: notificationId, event: 'credential_accepted', unknown_member: 1 })
+    assert.equal(first.res.status, 204)
+    assert.deepEqual(await status(code), { used: true, notification: { event: 'credential_accepted' } })
+
+    const again = await notify(accessToken, { notification_id: notificationId, event: 'credential_accepted' }, 'bearer')
+    assert.equal(again.res.status, 204)
+
+    const later = await notify(accessToken, { notification_id: notificationId, event: 'credential_deleted', event_description: 'User removed it' })
+    assert.equal(later.res.status, 204)
+    assert.deepEqual(await status(code), { used: true, notification: { event: 'credential_deleted' } })
+  })
+
+  test('keeps a spent token out of /credential', async () => {
+    const { accessToken } = await issue()
+    const replay = await requestCredential({ accessToken, proofJwt: await makeProof({ nonce: await requestNonce() }) })
+    assert.equal(replay.res.status, 401)
+  })
+
+  test("refuses another offer's notification_id, an unknown one, and one before the credential", async () => {
+    const mine = await issue()
+    const theirs = await issue()
+    for (const notificationId of [theirs.notificationId, 'made-up']) {
+      const { res, body } = await notify(mine.accessToken, { notification_id: notificationId, event: 'credential_accepted' })
+      assert.equal(res.status, 400)
+      assert.equal(body.error, 'invalid_notification_id')
+    }
+    assert.deepEqual(await status(theirs.code), { used: true })
+
+    const { body: offer } = await createOffer()
+    const { body: token } = await redeem(offer.preAuthorizedCode)
+    const early = await notify(token.access_token, { notification_id: mine.notificationId, event: 'credential_accepted' })
+    assert.equal(early.body.error, 'invalid_notification_id')
+  })
+
+  test('refuses a missing or unknown access token', async () => {
+    const { notificationId } = await issue()
+    for (const accessToken of [undefined, 'not-a-token']) {
+      const { res, body } = await notify(accessToken, { notification_id: notificationId, event: 'credential_accepted' })
+      assert.equal(res.status, 401)
+      assert.equal(body.error, 'invalid_token')
+    }
+  })
+
+  test('refuses a malformed request', async () => {
+    const { accessToken, notificationId } = await issue()
+    for (const body of [
+      {},
+      { notification_id: notificationId },
+      { notification_id: notificationId, event: 'credential_lost' },
+      { notification_id: 42, event: 'credential_accepted' },
+      { notification_id: notificationId, event: 'credential_failure', event_description: 7 },
+    ]) {
+      const res = await notify(accessToken, body)
+      assert.equal(res.res.status, 400, JSON.stringify(body))
+      assert.equal(res.body.error, 'invalid_notification_request')
+    }
   })
 })

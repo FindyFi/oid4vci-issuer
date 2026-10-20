@@ -60,7 +60,8 @@ export function createOfferHandlers({ store, credentialIssuer, checkOffer }) {
   function getOfferStatus(req, res) {
     const offer = store.get(offerKey(req.params.code))
     if (!offer) return res.status(404).json({ error: 'Offer not found or expired.' })
-    res.json({ used: offer.used })
+    // `notification` ({ event }) once the wallet sent one (src/notification.js).
+    res.json({ used: offer.used, ...(offer.notification ? { notification: offer.notification } : {}) })
   }
 
   return { createOffer, getOffer, getOfferStatus }

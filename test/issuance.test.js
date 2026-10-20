@@ -111,7 +111,8 @@ test('full pre-authorized code flow returns the 1.0 credentials array', async ()
   assert.match(credRes.headers.get('content-type'), /application\/json/)
   assert.equal(credRes.headers.get('cache-control'), 'no-store')
   const body = await credRes.json()
-  assert.deepEqual(Object.keys(body), ['credentials'])
+  assert.deepEqual(Object.keys(body), ['credentials', 'notification_id'])
+  assert.equal(typeof body.notification_id, 'string')
   assert.equal(body.credentials.length, 1)
   assert.deepEqual(Object.keys(body.credentials[0]), ['credential'])
   assert.deepEqual(body.credentials[0].credential, { ...unsignedCredential, proof: { type: 'DataIntegrityProof' } })
@@ -464,4 +465,28 @@ test('UniMe: /.well-known/did.json is a did:web document with the credential-sig
   // The SD-JWT header kid is the fragment of a verification method.
   const { sdJwt } = await issueDc()
   assert.ok(doc.assertionMethod.includes(`${did}#${decodeProtectedHeader(sdJwt).kid}`))
+})
+
+test('Procivis: the notification is heard for one token lifetime after issuance, then the token is unknown', async (t) => {
+  const { body: created } = await createOffer({ credentialConfigurationId: CONFIG_ID, unsignedCredential })
+  const { token, proof } = await redeem(created)
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  const { notification_id } = await (await credentialRequest(token.access_token, proof)).json()
+  const notify = () =>
+    fetch(`${base}/notification`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token.access_token}` },
+      body: JSON.stringify({ notification_id, event: 'credential_accepted' }),
+    })
+  const status = () => fetch(`${base}/instance/t1/offers/${created.preAuthorizedCode}/status`)
+
+  t.mock.timers.tick(5 * 60 * 1000 - 1000)
+  assert.equal((await notify()).status, 204)
+  assert.deepEqual(await (await status()).json(), { used: true, notification: { event: 'credential_accepted' } })
+
+  t.mock.timers.tick(2000)
+  const late = await notify()
+  assert.equal(late.status, 401)
+  assert.equal((await late.json()).error, 'invalid_token')
+  assert.equal((await status()).status, 404)
 })

@@ -369,7 +369,7 @@ Coordinator-facing (should sit behind network isolation and/or `COORDINATOR_TOKE
 Wallet-facing (public):
 
 - `GET /.well-known/openid-credential-issuer` — issuer metadata, including
-  `nonce_endpoint`.
+  `nonce_endpoint` and `notification_endpoint`.
 - `GET /.well-known/oauth-authorization-server` — OAuth 2.0 Authorization
   Server Metadata (RFC 8414). This service is its own authorization server, so
   1.0 wallets find `token_endpoint` here. It advertises only the
@@ -392,8 +392,11 @@ Wallet-facing (public):
   as its fragment. Credentials still name the plain HTTPS URL as `iss`; this
   is for wallets that identify every issuer by a DID (see "Interoperability").
 - `GET /instance/:tenant/offers/:code` — the hosted `credential_offer` JSON.
-- `GET /instance/:tenant/offers/:code/status` — `{ used: boolean }`, for a
-  coordinator that wants to poll for pickup.
+- `GET /instance/:tenant/offers/:code/status` — `{ used: boolean, notification?: { event } }`,
+  for a coordinator that wants to poll for pickup. `notification` appears once
+  the wallet has sent one (see `/notification`), with its latest `event`. A
+  used offer is kept for 5 minutes after issuance, then 404s like an expired
+  one.
 - `GET /authorize` — always 400 `{ "error": "unsupported_response_type" }`:
   there is no authorization code flow. It never redirects, not even to a
   `redirect_uri` in the request, since no client is registered (RFC 6749
@@ -412,9 +415,19 @@ Wallet-facing (public):
   algorithm is one the credential configuration advertises) and that its
   `nonce` claim is a real, unused value from `/nonce`, signs the credential
   (see the table above), and returns
-  `200 { "credentials": [{ "credential": <signed VC or SD-JWT string> }] }`
+  `200 { "credentials": [{ "credential": <signed VC or SD-JWT string> }], "notification_id": <id> }`
   (Section 8.3; the old top-level `credential` is gone in 1.0 final). There is
   always exactly one element, and the response is `Cache-Control: no-store`.
+- `POST /notification` — Section 11. The wallet reports what became of the
+  credential: JSON `{ notification_id, event, event_description? }`, with the
+  access token it got the credential with (any case of `Bearer`). `event` is
+  `credential_accepted`, `credential_failure` or `credential_deleted`.
+  Answers 204, also when the same notification comes again; 400
+  `invalid_notification_id` for an id that isn't this token's credential
+  response's; 400 `invalid_notification_request` for a malformed body; 401
+  `invalid_token`. Unknown members are ignored. The token stays usable here
+  (and only here) for 5 minutes after issuance; later notifications get 401.
+  `event_description` is logged, quoted, only with `LOG_REQUESTS`.
 
 Operational:
 
@@ -543,8 +556,15 @@ Each tolerance names the wallet that needed it, and has a test named after that 
     The Entity Configuration is the signed form, for those who need one.
   - `key_attestations_required`: not required (the spec says it MUST NOT be
     present then; Paradym fails on it).
-  - `notification_endpoint`: not yet; planned (Procivis One sends
-    notifications, the others checked don't).
+- **Notifications are best-effort**: `notification_endpoint` lets the wallet
+  say whether it stored the credential, which the offer status passes on to
+  the coordinator. Of the wallets checked, only Procivis One sends them
+  (`credential_accepted` after storing, `credential_failure` when storing
+  fails); Paradym (Credo) has the client code but doesn't call it. A missing
+  notification therefore says nothing. The spent token and the used offer are
+  kept for one token lifetime (5 minutes) after issuance, which covers a
+  wallet that notifies right after storing; a `credential_deleted` days later
+  is not heard.
 - **Display data that wallets actually use**: the first `display` entry is
   what most wallets show (UniMe and Heidi's credential card take only the
   first; Paradym matches only `en-*`, then an entry without a locale, then the
