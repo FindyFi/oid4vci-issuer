@@ -80,7 +80,8 @@ optional only because they matter just for `ldp_vc`; set all three wherever
 | `SD_JWT_PREVIOUS_KEYS` | no | After a key rotation: a JSON array of the earlier keys' **public** JWKs. They stay in `/.well-known/jwt-vc-issuer` after the current key, so credentials they signed keep verifying. See "Production keys" below. |
 | `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. `scripts/self-signed-x5c.js` makes a stored one. |
 | `SD_JWT_ISSUER` | no | The SD-JWT `iss`. Defaults to `CREDENTIAL_ISSUER`. Must be an origin with no path or trailing slash. |
-| `FEDERATION_ENTITY_METADATA` | no | Turns on the OpenID Federation Entity Configuration (see "OpenID Federation" below): a JSON object with a required `display_name`. Make it with `npm run federation:setup`. Needs `SD_JWT_SIGNING_KEY`, and `SD_JWT_ISSUER` (if set) must equal `CREDENTIAL_ISSUER`. |
+| `OID4VCI_ISSUER_METADATA` | no | The issuer `display` (name and logo per language) for the issuer metadata, as `{"display":[…]}` (see "Issuer display" below). Make it with `npm run metadata:setup`. |
+| `FEDERATION_ENTITY_METADATA` | no | Turns on the OpenID Federation Entity Configuration (see "OpenID Federation" below): a JSON object whose `display_name` is required unless `OID4VCI_ISSUER_METADATA` has a display to take it from. Make it with `npm run federation:setup`. Needs `SD_JWT_SIGNING_KEY`, and `SD_JWT_ISSUER` (if set) must equal `CREDENTIAL_ISSUER`. |
 | `FEDERATION_AUTHORITY_HINTS` | no | JSON array of https entity IDs of the trust anchor or intermediates above this issuer. |
 | `FEDERATION_TRUST_MARKS` | no | JSON array of trust marks, published as-is. |
 | `FEDERATION_ENTITY_CONFIGURATION_TTL` | no | Seconds the Entity Configuration is valid. Default 86400. |
@@ -182,6 +183,46 @@ The service refuses to start without `CREDENTIAL_ISSUER`, or with
 unparseable `CREDENTIAL_CONFIGURATIONS_SUPPORTED`, rather than coming up in a
 state that would fail later against a real wallet.
 
+## Issuer display
+
+`OID4VCI_ISSUER_METADATA` puts a `display` into
+`/.well-known/openid-credential-issuer` (OID4VCI 1.0 Section 12.2.4), so wallets
+can show who issues: one entry per language, each with a `name` and optionally a
+`logo` (`uri`, https or a `data:` URI, and `alt_text`). Without it the metadata
+has no `display`, as before. The service refuses to start on an invalid one: an
+empty array, two entries for one language, a missing name, a logo URI that isn't
+https or `data:`, or a member it doesn't know.
+
+List the main language first: several wallets show only the first entry (see
+"Display data that wallets actually use" in the design notes). Use an https URL
+to a PNG under 200 KB for the logo: some wallets render no SVG, don't read
+`data:` URIs, or drop large logos.
+
+The script asks for the languages first, then the name in each, the logo, and
+the logo's description in each:
+
+```sh
+npm run metadata:setup                       # asks, then adds the line to ./.env
+npm run metadata:setup -- --lang=fi,en,sv    # these languages, in this order
+node scripts/issuer-metadata.js              # same questions, only prints the line
+node scripts/issuer-metadata.js --lang=fi,en --name "fi=Esimerkkiyliopisto" \
+  --name "en=Example University" --logo-uri https://example.org/logo.png \
+  --logo-alt "fi=Esimerkkiyliopiston logo" --logo-alt "en=Example University logo"
+```
+
+With `--name` it asks nothing; the languages are then `--lang`, or the ones the
+`--name` options give. `--write [file]` and `--json` work as in
+`federation:setup` (below).
+
+The same name and logo also serve OpenID Federation: when
+`FEDERATION_ENTITY_METADATA` has no `display_name`, the Entity Configuration
+gets the English name (or the first) as `display_name`, and every language's
+name as `display_name#<language>` (OpenID Federation 1.0 Section 14). When it has
+no `logo_uri`, it gets the display's logo, if that is an https URL. What
+`FEDERATION_ENTITY_METADATA` sets itself is kept. Federation stays off until
+`FEDERATION_ENTITY_METADATA` is set; `{}` turns it on with only the name and logo
+from the display.
+
 ## OpenID Federation
 
 Set `FEDERATION_ENTITY_METADATA` and the service publishes an OpenID
@@ -194,7 +235,8 @@ Establishing Trust in Credential Issuers"): a compact JWS (`typ`
 
 - `iss` = `sub` = `CREDENTIAL_ISSUER`, the Entity Identifier, plus `iat`,
   `exp` and a root `jwks` (a JWK Set) with the key that signs it;
-- `metadata.federation_entity`: your `FEDERATION_ENTITY_METADATA`;
+- `metadata.federation_entity`: your `FEDERATION_ENTITY_METADATA`, with the
+  name and logo from the issuer display where it has none (see "Issuer display");
 - `metadata.openid_credential_issuer`: the issuer metadata, plus `jwks` with the
   credential-signing keys;
 - `metadata.vc_issuer.jwks`: the same keys, where DIIP looks for them (their
@@ -215,7 +257,7 @@ trust anchor pins your federation key and you rotate the credential key.
 
 The service refuses to start if federation is on but there's no
 `SD_JWT_SIGNING_KEY`, if `SD_JWT_ISSUER` differs from `CREDENTIAL_ISSUER`, or if
-any `FEDERATION_*` value is invalid (no `display_name`, a hint that isn't an
+any `FEDERATION_*` value is invalid (no `display_name` and no issuer display, a hint that isn't an
 https URL, ...).
 
 ### Making the `FEDERATION_*` values
@@ -236,7 +278,11 @@ Contacts (e-mail addresses or URLs), comma separated (optional, Enter to skip): 
 FEDERATION_ENTITY_METADATA='{"display_name":"Example University","organization_name":"Example University Oy","contacts":["it@example.org"]}'
 ```
 
-Options (they skip the questions when `--display-name` is given):
+If `OID4VCI_ISSUER_METADATA` already has a display (in the environment or in
+the env file), the display name and logo may be left empty: the service takes
+them from it. Run `npm run metadata:setup` first, then.
+
+Options (any of the value options skips the questions):
 
 | Option | |
 |--------|---|
@@ -479,6 +525,35 @@ Each tolerance names the wallet that needed it, and has a test named after that 
   TTL (`src/store.js`), fine for a single process; swap in a Redis-backed
   implementation of the same `{ get, set, delete }` shape if this needs to
   run multi-process.
+- **Issuer metadata members we leave out on purpose** (reviewed 2026-10-20
+  against OID4VCI 1.0 section 12.2.4 and the source of Procivis One, Paradym
+  (Credo), Heidi (Kapun SDK), UniMe and Altme/Talao):
+  - `authorization_servers`: this service is its own authorization server, and
+    every wallet checked falls back to the issuer (`/.well-known/oauth-authorization-server`).
+  - `deferred_credential_endpoint`: issuance is always immediate.
+  - `credential_request_encryption`, `credential_response_encryption`: TLS
+    protects the exchange. Advertising them is not harmless: Procivis One then
+    encrypts, even with `encryption_required: false`, and fails on a plain
+    response.
+  - `batch_credential_issuance`: one credential per offer. Procivis would ask
+    for exactly `batch_size` credentials, Paradym for up to 10; the credentials
+    name their holder, so batches would add little unlinkability.
+  - Signed metadata (section 12.2.3): Procivis and Paradym fall back to the
+    JSON; Altme shows the certificate's name and no logo when it is present.
+    The Entity Configuration is the signed form, for those who need one.
+  - `key_attestations_required`: not required (the spec says it MUST NOT be
+    present then; Paradym fails on it).
+  - `notification_endpoint`: not yet; planned (Procivis One sends
+    notifications, the others checked don't).
+- **Display data that wallets actually use**: the first `display` entry is
+  what most wallets show (UniMe and Heidi's credential card take only the
+  first; Paradym matches only `en-*`, then an entry without a locale, then the
+  first), so list the main language first. Logos: an https URL to a small PNG
+  (UniMe downloads only PNG, JPEG or SVG up to 2 MB and doesn't read `data:`
+  URIs; Procivis drops logos over 200 KB; Altme recognises SVG only by a
+  `.svg` suffix). Per-configuration `credential_metadata.display` colours are
+  shown by Procivis, Altme and Heidi (`background_color`); Paradym prefers the
+  SD-JWT VC type metadata's display for `dc+sd-jwt`.
 
 ## Contributing
 

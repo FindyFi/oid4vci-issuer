@@ -21,9 +21,17 @@ version to pin.
   an authorization endpoint.
 - `response_types_supported: []` in the authorization server metadata (RFC 8414 requires the member;
   no response type is supported).
+- `OID4VCI_ISSUER_METADATA`: an issuer `display` (name and logo per language) in
+  `/.well-known/openid-credential-issuer` and in the Entity Configuration's `openid_credential_issuer`.
+  The service refuses to start on an invalid one. `npm run metadata:setup`
+  (`scripts/issuer-metadata.js`) asks for the languages (or takes `--lang=fi,en,…`), then the name and
+  logo description in each, and the logo.
 
 ### Changed
 
+- `FEDERATION_ENTITY_METADATA` may leave out `display_name` and `logo_uri` when the issuer display is
+  set: the Entity Configuration then takes them from it (`display_name#<language>` for every
+  language). `federation:setup` no longer requires a display name then.
 - Proof JWTs may name the holder key as a `did:jwk` DID URL in `kid` instead of a `jwk` header
   (OID4VCI 1.0 App. F.1, DIIP v5). The credential then carries `cnf.kid` (the DID URL) next to
   `cnf.jwk`. Other DID methods are refused with `invalid_proof`.

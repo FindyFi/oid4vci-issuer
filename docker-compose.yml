@@ -40,6 +40,7 @@ services:
       # OpenID Federation Entity Configuration, off unless set. Run
       # `npm run federation:setup` to put these in .env, which compose reads
       # (see "OpenID Federation" in the README).
+      OID4VCI_ISSUER_METADATA: ${OID4VCI_ISSUER_METADATA:-}
       FEDERATION_ENTITY_METADATA: ${FEDERATION_ENTITY_METADATA:-}
       FEDERATION_AUTHORITY_HINTS: ${FEDERATION_AUTHORITY_HINTS:-}
       FEDERATION_TRUST_MARKS: ${FEDERATION_TRUST_MARKS:-}
