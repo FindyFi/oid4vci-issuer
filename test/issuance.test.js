@@ -403,6 +403,60 @@ test('a bad disclosable list is rejected with 400', async () => {
   }
 })
 
+// Issues the offer `body` and returns the SD-JWT's payload, unverified (the
+// tests above verify signatures).
+async function issuedPayload(body) {
+  const { res, body: created } = await createOffer(body)
+  assert.equal(res.status, 200, JSON.stringify(created))
+  const { token, proof } = await redeem(created)
+  const credRes = await credentialRequest(token.access_token, proof, body.credentialConfigurationId)
+  assert.equal(credRes.status, 200, JSON.stringify(await credRes.clone().json()))
+  return decodeJwtPayload((await credRes.json()).credentials[0].credential)
+}
+
+const NEXT_YEAR = new Date(Date.now() + 365 * 24 * 3600 * 1000)
+NEXT_YEAR.setUTCMilliseconds(0)
+const nextYear = NEXT_YEAR.toISOString()
+
+test('dc+sd-jwt: the offer validUntil becomes exp', async () => {
+  const payload = await issuedPayload({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, validUntil: nextYear })
+  assert.equal(payload.exp, NEXT_YEAR.getTime() / 1000)
+  assert.equal('validUntil' in payload, false)
+})
+
+test('vc+sd-jwt: the credential validUntil becomes exp, and the offer may repeat it', async () => {
+  const unsigned = { ...vcdm2Credential, validUntil: nextYear }
+  for (const body of [
+    { credentialConfigurationId: SD_JWT_CONFIG_ID, unsignedCredential: unsigned },
+    { credentialConfigurationId: SD_JWT_CONFIG_ID, unsignedCredential: unsigned, validUntil: nextYear },
+  ]) {
+    const payload = await issuedPayload(body)
+    assert.equal(payload.exp, NEXT_YEAR.getTime() / 1000)
+    assert.equal(payload.validUntil, nextYear)
+  }
+})
+
+test('without a validUntil there is no exp', async () => {
+  assert.equal('exp' in (await issuedPayload({ credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims })), false)
+})
+
+test('a bad validUntil is rejected with 400', async () => {
+  const past = new Date(Date.now() - 1000).toISOString()
+  const cases = [
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, validUntil: 'next year' },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, validUntil: 1893456000 },
+    { credentialConfigurationId: DC_CONFIG_ID, unsignedCredential: dcClaims, validUntil: past },
+    { credentialConfigurationId: SD_JWT_CONFIG_ID, unsignedCredential: { ...vcdm2Credential, validUntil: past } },
+    { credentialConfigurationId: SD_JWT_CONFIG_ID, unsignedCredential: { ...vcdm2Credential, validUntil: nextYear }, validUntil: new Date(NEXT_YEAR.getTime() + 1000).toISOString() },
+    { credentialConfigurationId: CONFIG_ID, unsignedCredential, validUntil: nextYear },
+  ]
+  for (const body of cases) {
+    const { res, body: error } = await createOffer(body)
+    assert.equal(res.status, 400, JSON.stringify(body))
+    assert.match(error.error, /validUntil/)
+  }
+})
+
 test('vc+sd-jwt binds the holder only when its configuration lists jwk', async () => {
   const sdJwt = await issueSdJwt()
   assert.equal('cnf' in decodeJwtPayload(sdJwt), false)

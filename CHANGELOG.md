@@ -11,6 +11,11 @@ version to pin.
 
 ### Added
 
+- Expiry for SD-JWT credentials: an offer may carry `validUntil` (an ISO 8601 date-time), and the
+  credential gets `exp` from it. For `vc+sd-jwt` the credential's own `validUntil` sets `exp` as well;
+  when both are sent they must agree. A `validUntil` that isn't a date-time, has passed, or comes with
+  an `ldp_vc` offer is rejected with 400. Used by opintotodiste's student status credential.
+
 - `GET /.well-known/did.json`: a `did:web` DID Document for the credential issuer's host, listing the
   credential-signing keys (the JWKS keys, `kid` as the fragment). Credentials keep the HTTPS URL as
   `iss`. UniMe requires the document from every OID4VCI issuer.

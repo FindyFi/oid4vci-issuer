@@ -16,8 +16,11 @@ export function createSigners({ credentialConfigurationsSupported, signLdpVc, sd
       }
       byConfigurationId[id] = {
         sign: (vc) => signLdpVc(vc),
-        check: (vc, { disclosable } = {}) =>
-          disclosable === undefined ? undefined : 'disclosable is only supported for dc+sd-jwt configurations.',
+        check: (vc, { disclosable, validUntil } = {}) => {
+          if (disclosable !== undefined) return 'disclosable is only supported for dc+sd-jwt configurations.'
+          // An ldp_vc carries its own expiry, signed into it.
+          if (validUntil !== undefined) return 'validUntil is only supported for SD-JWT configurations.'
+        },
       }
     } else if (SD_JWT_FORMATS.includes(format)) {
       if (!sdJwt?.key || !sdJwt?.issuer) {
@@ -36,15 +39,15 @@ export function createSigners({ credentialConfigurationsSupported, signLdpVc, sd
 
   return {
     // Returns an error message for an offer this service can't issue, or undefined.
-    // `options` is `{ disclosable }` from the offer.
+    // `options` is `{ disclosable, validUntil }` from the offer.
     checkOffer(credentialConfigurationId, unsignedCredential, options) {
       const signer = byConfigurationId[credentialConfigurationId]
       if (!signer) return `Unknown credentialConfigurationId: ${credentialConfigurationId}.`
       return signer.check(unsignedCredential, options)
     },
-    // `options` is `{ holderJwk, holderKid, disclosable }`: the public key from
-    // the verified proof JWT (and its DID URL, if the wallet named it by
-    // one), and the offer's disclosable claims.
+    // `options` is `{ holderJwk, holderKid, disclosable, validUntil }`: the
+    // public key from the verified proof JWT (and its DID URL, if the wallet
+    // named it by one), and the offer's disclosable claims and expiry.
     sign(credentialConfigurationId, unsignedCredential, options) {
       return byConfigurationId[credentialConfigurationId].sign(unsignedCredential, options)
     },

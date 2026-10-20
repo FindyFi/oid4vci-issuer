@@ -9,6 +9,8 @@ import { ES256, digest, generateSalt } from '@sd-jwt/crypto-nodejs'
 //   (`disclosable` in the offer); everything else is always disclosed.
 // Holder binding (`cnf.jwk`, the key from the wallet's proof JWT) is added
 // when the configuration lists `jwk` in cryptographic_binding_methods_supported.
+// Expiry: `exp` from the offer's `validUntil` (optional), or for a vc+sd-jwt
+// from the credential's own `validUntil`; the two must agree when both are there.
 export const VC_SD_JWT = 'vc+sd-jwt'
 export const DC_SD_JWT = 'dc+sd-jwt'
 export const SD_JWT_FORMATS = [VC_SD_JWT, DC_SD_JWT]
@@ -40,10 +42,12 @@ export function checkSdJwtConfiguration(configuration) {
 // Nothing is silently overwritten: the coordinator must already have put
 // this service's SD-JWT issuer URL (vc+sd-jwt) or the configuration's vct
 // (dc+sd-jwt) into the credential.
-export function checkSdJwtCredential(credential, configuration, { issuer }, { disclosable } = {}) {
+export function checkSdJwtCredential(credential, configuration, { issuer }, { disclosable, validUntil } = {}) {
   if (!credential || typeof credential !== 'object' || Array.isArray(credential)) {
     return 'unsignedCredential must be a JSON object.'
   }
+  const expiryProblem = checkValidUntil(validUntil, 'validUntil')
+  if (expiryProblem) return expiryProblem
   if (configuration.format === DC_SD_JWT) {
     if (credential.vct !== configuration.vct) return `The credential vct must be ${configuration.vct}.`
     const reserved = RESERVED_DC_CLAIMS.filter((claim) => claim in credential)
@@ -57,6 +61,19 @@ export function checkSdJwtCredential(credential, configuration, { issuer }, { di
   if (credential.validFrom !== undefined && Number.isNaN(Date.parse(credential.validFrom))) {
     return 'validFrom must be an ISO 8601 date-time.'
   }
+  const ownExpiryProblem = checkValidUntil(credential.validUntil, 'The credential validUntil')
+  if (ownExpiryProblem) return ownExpiryProblem
+  if (validUntil !== undefined && credential.validUntil !== undefined && Date.parse(validUntil) !== Date.parse(credential.validUntil)) {
+    return 'validUntil must be the credential validUntil.'
+  }
+}
+
+// A validUntil, when there is one, must be a date-time still ahead: an
+// already expired credential is no use to anyone.
+function checkValidUntil(validUntil, name) {
+  if (validUntil === undefined) return
+  if (typeof validUntil !== 'string' || Number.isNaN(Date.parse(validUntil))) return `${name} must be an ISO 8601 date-time.`
+  if (Date.parse(validUntil) <= Date.now()) return `${name} must be in the future.`
 }
 
 // `disclosable`: the names of top-level claims to make selectively
@@ -80,11 +97,11 @@ function checkDisclosable(disclosable, credential) {
 // in `_sd` (with `_sd_alg: sha-256`) and travel as disclosures. The payload is the credential
 // unchanged plus `iss`, `iat`, `cnf` (when binding), `vct#integrity` (from
 // the configuration, see src/vct-integrity.js), `fed` (dc+sd-jwt) or a
-// `termsOfUse` entry (vc+sd-jwt), when federation is on and, for a vc+sd-jwt
-// with `validFrom`, `nbf`. With no disclosure frame the library adds
+// `termsOfUse` entry (vc+sd-jwt), when federation is on, for a vc+sd-jwt
+// with `validFrom`, `nbf`, and `exp` when there is a validUntil (see above). With no disclosure frame the library adds
 // neither `_sd` nor `_sd_alg`. The header carries `x5c` when a certificate
 // chain is configured (see src/x5c.js).
-export async function signSdJwt(credential, configuration, { issuer, key, x5c, fed }, { holderJwk, holderKid, disclosable } = {}) {
+export async function signSdJwt(credential, configuration, { issuer, key, x5c, fed }, { holderJwk, holderKid, disclosable, validUntil } = {}) {
   const sdjwt = new SDJwtInstance({
     // key.sign is a local key or KMS (src/keys.js); the library wants base64url.
     signer: async (data) => Buffer.from(await key.sign(Buffer.from(data))).toString('base64url'),
@@ -96,6 +113,8 @@ export async function signSdJwt(credential, configuration, { issuer, key, x5c, f
   if (configuration.format === VC_SD_JWT && credential.validFrom !== undefined) {
     payload.nbf = Math.floor(Date.parse(credential.validFrom) / 1000)
   }
+  const expiry = validUntil ?? (configuration.format === VC_SD_JWT ? credential.validUntil : undefined)
+  if (expiry !== undefined) payload.exp = Math.floor(Date.parse(expiry) / 1000)
   if (configuration.format === DC_SD_JWT && configuration['vct#integrity']) {
     payload['vct#integrity'] = configuration['vct#integrity']
   }

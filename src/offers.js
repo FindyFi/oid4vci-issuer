@@ -15,20 +15,21 @@ export function offerKey(code) {
 // configuration's signer couldn't issue, such as an SD-JWT credential whose
 // issuer isn't this service's SD-JWT issuer URL. `disclosable` (optional,
 // dc+sd-jwt only) names the top-level claims to make selectively disclosable.
+// `validUntil` (optional, SD-JWT only) is when the credential expires (`exp`).
 export function createOfferHandlers({ store, credentialIssuer, checkOffer }) {
   function createOffer(req, res) {
-    const { credentialConfigurationId, unsignedCredential, txCode, disclosable } = req.body || {}
+    const { credentialConfigurationId, unsignedCredential, txCode, disclosable, validUntil } = req.body || {}
     if (!credentialConfigurationId || !unsignedCredential) {
       return res.status(400).json({ error: 'credentialConfigurationId and unsignedCredential are required.' })
     }
-    const problem = checkOffer(credentialConfigurationId, unsignedCredential, { disclosable })
+    const problem = checkOffer(credentialConfigurationId, unsignedCredential, { disclosable, validUntil })
     if (problem) return res.status(400).json({ error: problem })
 
     const code = randomUUID()
     const txCodeValue = txCode ? String(randomInt(10 ** (TX_CODE_LENGTH - 1), 10 ** TX_CODE_LENGTH)) : undefined
     store.set(
       offerKey(code),
-      { credentialConfigurationId, unsignedCredential, disclosable, txCode: txCodeValue, used: false },
+      { credentialConfigurationId, unsignedCredential, disclosable, validUntil, txCode: txCodeValue, used: false },
       OFFER_TTL_MS
     )
 
