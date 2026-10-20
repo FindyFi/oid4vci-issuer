@@ -11,6 +11,8 @@ export function issuerMetadata({ credentialIssuer, credentialConfigurationsSuppo
     // declares proof_types_supported (OID4VCI 1.0 Section 12.2.4) - this
     // service always requires a proof, so it always advertises this.
     nonce_endpoint: `${credentialIssuer}/nonce`,
+    // Where a wallet says whether it stored the credential (section 11).
+    notification_endpoint: `${credentialIssuer}/notification`,
     // Who issues, for wallets to show: one entry per locale.
     ...(display ? { display } : {}),
     credential_configurations_supported: credentialConfigurationsSupported,

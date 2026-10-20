@@ -5,6 +5,7 @@ import { createTokenHandler } from './token.js'
 import { authorizeHandler } from './authorize.js'
 import { createNonceHandler } from './nonce.js'
 import { createCredentialHandler } from './credential.js'
+import { createNotificationHandler } from './notification.js'
 import { checkDisplay, createAuthorizationServerMetadataHandler, createMetadataHandler } from './metadata.js'
 import { requireCoordinatorToken } from './auth.js'
 import { createSigners } from './signers.js'
@@ -87,6 +88,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   app.post('/token', tokenHandler)
   app.post('/nonce', nonceHandler)
   app.post('/credential', credentialHandler)
+  app.post('/notification', createNotificationHandler({ store, logRequests }))
 
   // Coordinator-facing (should not be publicly exposed; guarded by a shared
   // bearer token when COORDINATOR_TOKEN is set)

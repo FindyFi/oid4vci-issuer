@@ -27,8 +27,16 @@ version to pin.
   (`scripts/issuer-metadata.js`) asks for the languages (or takes `--lang=fi,en,…`), then the name and
   logo description in each, and the logo.
 
+- `notification_endpoint` (OID4VCI 1.0 section 11): `POST /notification` takes the wallet's
+  `credential_accepted`, `credential_failure` or `credential_deleted` for the `notification_id` that
+  the Credential Response now carries. The offer status adds `notification: { event }`, so a
+  coordinator can tell "stored in the wallet" from "picked up". Procivis One sends notifications.
+
 ### Changed
 
+- A used offer and its spent access token are kept for 5 minutes after issuance (was: the offer 1
+  minute, the token dropped at once), so the wallet can notify with the token. `/credential` still
+  refuses a spent token.
 - `FEDERATION_ENTITY_METADATA` may leave out `display_name` and `logo_uri` when the issuer display is
   set: the Entity Configuration then takes them from it (`display_name#<language>` for every
   language). `federation:setup` no longer requires a display name then.

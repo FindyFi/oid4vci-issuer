@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { verifyProof } from './proof.js'
 import { offerKey } from './offers.js'
-import { tokenKey } from './token.js'
+import { TOKEN_TTL_MS, accessTokenOf, tokenKey } from './token.js'
 import { consumeNonce } from './nonce.js'
 
 // The OID4VCI 1.0 Credential Endpoint. `signCredential(configurationId, vc)`
@@ -14,14 +15,12 @@ export function createCredentialHandler({
   credentialConfigurationsSupported = {},
 }) {
   return async function credentialHandler(req, res) {
-    // The scheme is case-insensitive (RFC 7235 section 2.1), and /token says
-    // `token_type: "bearer"`, which a wallet may echo as it is.
-    const auth = req.get('authorization') || ''
-    const [, accessToken] = auth.match(/^bearer +(.+)$/i) || []
+    const accessToken = accessTokenOf(req)
     if (!accessToken) return res.status(401).json({ error: 'invalid_token' })
 
+    // A token that already got its credential is kept only for /notification.
     const tokenEntry = store.get(tokenKey(accessToken))
-    if (!tokenEntry) return res.status(401).json({ error: 'invalid_token' })
+    if (!tokenEntry || tokenEntry.notificationId) return res.status(401).json({ error: 'invalid_token' })
 
     const offer = store.get(offerKey(tokenEntry.offerCode))
     if (!offer || offer.used) return res.status(400).json({ error: 'invalid_credential_request' })
@@ -77,10 +76,14 @@ export function createCredentialHandler({
       return res.status(400).json({ error: 'invalid_nonce', error_description: 'Unknown, already-used, or expired nonce.' })
     }
 
-    // Mark the offer consumed (single-use) before signing, and drop the
-    // access token, so a retried or racing request can't redeem twice.
-    store.set(offerKey(tokenEntry.offerCode), { ...offer, used: true }, 60_000)
-    store.delete(tokenKey(accessToken))
+    // Mark the offer consumed (single-use) and the access token spent before
+    // signing, so a retried or racing request can't redeem twice. The wallet
+    // still needs the token for the Notification Endpoint (section 11), so
+    // both are kept one token lifetime from now (src/notification.js).
+    const notificationId = randomUUID()
+    const keepUntil = Date.now() + TOKEN_TTL_MS
+    store.set(offerKey(tokenEntry.offerCode), { ...offer, used: true, keepUntil }, TOKEN_TTL_MS)
+    store.set(tokenKey(accessToken), { ...tokenEntry, notificationId }, TOKEN_TTL_MS)
 
     try {
       const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential, {
@@ -89,10 +92,12 @@ export function createCredentialHandler({
         disclosable: offer.disclosable,
       })
       // Section 8.3: immediate issuance is a 200 with a `credentials` array of
-      // objects, each holding one `credential`; there is no top-level `credential`.
+      // objects, each holding one `credential`; there is no top-level
+      // `credential`. `notification_id` is what the wallet notifies about.
       res.set('Cache-Control', 'no-store')
-      res.json({ credentials: [{ credential }] })
+      res.json({ credentials: [{ credential }], notification_id: notificationId })
     } catch (err) {
+      store.delete(tokenKey(accessToken))
       res.status(500).json({ error: 'issuance_failed', error_description: err.message })
     }
   }

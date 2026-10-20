@@ -2,10 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { offerKey } from './offers.js'
 
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
-const TOKEN_TTL_MS = 5 * 60 * 1000
+export const TOKEN_TTL_MS = 5 * 60 * 1000
 
 export function tokenKey(accessToken) {
   return `token:${accessToken}`
+}
+
+// The access token from an Authorization header. The scheme is
+// case-insensitive (RFC 7235 section 2.1), and /token says
+// `token_type: "bearer"`, which a wallet may echo as it is.
+export function accessTokenOf(req) {
+  const [, accessToken] = (req.get('authorization') || '').match(/^bearer +(.+)$/i) || []
+  return accessToken
 }
 
 // The OID4VCI token endpoint is a plain OAuth2 token endpoint: form-encoded
