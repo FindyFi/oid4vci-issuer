@@ -193,8 +193,10 @@ has no `display`, as before. The service refuses to start on an invalid one: an
 empty array, two entries for one language, a missing name, a logo URI that isn't
 https or `data:`, or a member it doesn't know.
 
-Prefer a PNG logo over SVG: not every wallet renders SVG. Keep it small, too;
-some wallets cap the logo size.
+List the main language first: several wallets show only the first entry (see
+"Display data that wallets actually use" in the design notes). Use an https URL
+to a PNG under 200 KB for the logo: some wallets render no SVG, don't read
+`data:` URIs, or drop large logos.
 
 The script asks for the languages first, then the name in each, the logo, and
 the logo's description in each:
@@ -523,6 +525,35 @@ Each tolerance names the wallet that needed it, and has a test named after that 
   TTL (`src/store.js`), fine for a single process; swap in a Redis-backed
   implementation of the same `{ get, set, delete }` shape if this needs to
   run multi-process.
+- **Issuer metadata members we leave out on purpose** (reviewed 2026-10-20
+  against OID4VCI 1.0 section 12.2.4 and the source of Procivis One, Paradym
+  (Credo), Heidi (Kapun SDK), UniMe and Altme/Talao):
+  - `authorization_servers`: this service is its own authorization server, and
+    every wallet checked falls back to the issuer (`/.well-known/oauth-authorization-server`).
+  - `deferred_credential_endpoint`: issuance is always immediate.
+  - `credential_request_encryption`, `credential_response_encryption`: TLS
+    protects the exchange. Advertising them is not harmless: Procivis One then
+    encrypts, even with `encryption_required: false`, and fails on a plain
+    response.
+  - `batch_credential_issuance`: one credential per offer. Procivis would ask
+    for exactly `batch_size` credentials, Paradym for up to 10; the credentials
+    name their holder, so batches would add little unlinkability.
+  - Signed metadata (section 12.2.3): Procivis and Paradym fall back to the
+    JSON; Altme shows the certificate's name and no logo when it is present.
+    The Entity Configuration is the signed form, for those who need one.
+  - `key_attestations_required`: not required (the spec says it MUST NOT be
+    present then; Paradym fails on it).
+  - `notification_endpoint`: not yet; planned (Procivis One sends
+    notifications, the others checked don't).
+- **Display data that wallets actually use**: the first `display` entry is
+  what most wallets show (UniMe and Heidi's credential card take only the
+  first; Paradym matches only `en-*`, then an entry without a locale, then the
+  first), so list the main language first. Logos: an https URL to a small PNG
+  (UniMe downloads only PNG, JPEG or SVG up to 2 MB and doesn't read `data:`
+  URIs; Procivis drops logos over 200 KB; Altme recognises SVG only by a
+  `.svg` suffix). Per-configuration `credential_metadata.display` colours are
+  shown by Procivis, Altme and Heidi (`background_color`); Paradym prefers the
+  SD-JWT VC type metadata's display for `dc+sd-jwt`.
 
 ## Contributing
 

@@ -108,9 +108,9 @@ async function ask({ locales, names, logoUri, altTexts }) {
   }
   try {
     console.error('Issuer display, published in /.well-known/openid-credential-issuer. Wallets show the name and logo.\n')
-    if (!locales.length) locales = splitList([await line('Languages, comma separated, e.g. fi, en, sv', { required: true })])
+    if (!locales.length) locales = splitList([await line('Languages, comma separated, main language first (most wallets show the first), e.g. fi, en, sv', { required: true })])
     for (const locale of locales) names[locale] ??= await line(`Name in ${locale}`, { required: true })
-    logoUri ??= await line('Logo (https URL or data: URI; PNG shows in the most wallets)')
+    logoUri ??= await line('Logo (an https URL to a PNG under 200 KB shows in the most wallets)')
     if (logoUri) {
       for (const locale of locales) altTexts[locale] ??= await line(`Logo description in ${locale}`)
     }
