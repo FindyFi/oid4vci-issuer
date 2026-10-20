@@ -9,6 +9,25 @@ version to pin.
 
 ## [Unreleased]
 
+### Added
+
+- `GET /.well-known/did.json`: a `did:web` DID Document for the credential issuer's host, listing the
+  credential-signing keys (the JWKS keys, `kid` as the fragment). Credentials keep the HTTPS URL as
+  `iss`. UniMe requires the document from every OID4VCI issuer.
+- README "Interoperability": the robustness principle and the list of tolerated wallet behaviour.
+
+### Changed
+
+- Proof JWTs may name the holder key as a `did:jwk` DID URL in `kid` instead of a `jwk` header
+  (OID4VCI 1.0 App. F.1, DIIP v5). The credential then carries `cnf.kid` (the DID URL) next to
+  `cnf.jwk`. Other DID methods are refused with `invalid_proof`.
+- A proof `aud` with or without a trailing slash matches the Credential Issuer Identifier.
+
+### Fixed
+
+- `/credential` accepts the `Bearer` scheme in any case (RFC 7235). `/token` returns
+  `token_type: "bearer"`, so a wallet that echoed it got a 401.
+
 ## [0.0.4] - 2026-10-18
 
 ### Added

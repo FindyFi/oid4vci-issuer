@@ -337,6 +337,12 @@ Wallet-facing (public):
 - `GET /.well-known/jwt-vc-issuer` — only when SD-JWT signing is configured.
   JWT VC Issuer Metadata: `{ "issuer": <issuer URL>, "jwks": { "keys": [<public JWK with kid, alg, use: "sig">] } }`.
   Verifiers use it to find the key for an SD-JWT's `iss` and `kid`.
+- `GET /.well-known/did.json` — only when SD-JWT signing is configured. A
+  `did:web` DID Document for `CREDENTIAL_ISSUER`'s host (`did:web:<host>`)
+  whose verification methods (`JsonWebKey2020`, in `assertionMethod` and
+  `authentication`) are the keys in the JWKS above, each with the key's `kid`
+  as its fragment. Credentials still name the plain HTTPS URL as `iss`; this
+  is for wallets that identify every issuer by a DID (see "Interoperability").
 - `GET /instance/:tenant/offers/:code` — the hosted `credential_offer` JSON.
 - `GET /instance/:tenant/offers/:code/status` — `{ used: boolean }`, for a
   coordinator that wants to poll for pickup.
@@ -349,7 +355,8 @@ Wallet-facing (public):
   and a `proofs` object (plural, per Section 8.2 — `{"proofs":{"jwt":["<jwt>"]}}`,
   not a singular `proof`). This service only supports exactly one proof per
   request (one offer = one credential instance, no batch issuance). Verifies
-  the proof JWT (signature, `aud`, `typ: openid4vci-proof+jwt`, and that its
+  the proof JWT (signature against the key in its `jwk` header or `did:jwk`
+  `kid`, `aud`, `typ: openid4vci-proof+jwt`, and that its
   algorithm is one the credential configuration advertises) and that its
   `nonce` claim is a real, unused value from `/nonce`, signs the credential
   (see the table above), and returns
@@ -418,16 +425,38 @@ Note that offers, tokens and nonces are held in memory (see
 [Design notes](#design-notes)), so a deployed instance should run as a single
 replica until that is swapped for a shared store.
 
+## Interoperability
+
+Wallets differ in how closely they follow the specs, and a credential that never reaches the wallet
+helps nobody. Two principles guide what this service accepts:
+
+- **Robustness principle: be liberal in what we accept, strict in what we send.** Where a wallet's
+  request is unambiguous but not exactly per spec, accept it. Everything this service emits
+  (metadata, tokens, credentials) stays exactly per spec.
+- **Accommodate [DIIP](https://fidescommunity.github.io/DIIP/)-compliant wallets as far as we can**,
+  also beyond our own choices. For example, `/.well-known/did.json` is published for wallets that
+  identify issuers by DIDs, although credentials name a plain HTTPS URL as `iss`.
+
+Each tolerance names the wallet that needed it, and has a test named after that wallet
+(`test/issuance.test.js`):
+
+| Accepted | Spec says | Needed by |
+| --- | --- | --- |
+| The holder key as a `did:jwk` DID URL in the proof's `kid`, instead of a `jwk` header. The credential gets `cnf.jwk` and `cnf.kid` (the DID URL). Other DID methods are refused, since resolving them would mean fetching URLs a wallet chose. | OID4VCI 1.0 App. F.1 allows `kid`, `jwk` or `x5c`; DIIP v5 requires `did:jwk`, and `cnf.kid` from the holder's DID document | UniMe |
+| A proof `aud` with one trailing slash more or less than the Credential Issuer Identifier. | App. F.1: `aud` MUST be the Credential Issuer Identifier | UniMe |
+| The access token with any case of the `Bearer` scheme, such as the `bearer` that `/token` returns as `token_type`. | RFC 7235 section 2.1: the scheme is case-insensitive | (found with a scripted wallet) |
+| A `did:web` document at `/.well-known/did.json`. | UniMe requires one for every OID4VCI issuer (its ADR 0001); DIIP v5 asks for `did:web` support | UniMe |
+| A pre-1.0 singular `proof: { proof_type: "jwt", jwt }` next to the 1.0 `proofs.jwt` array. | OID4VCI 1.0 section 8.2: `proofs` | pre-1.0 (draft 13) wallets |
+| A proof with both `jwk` and `kid`: `jwk` wins, and `kid` is taken as a plain key id. | App. F.1: `kid` MUST NOT be present with `jwk` | (by the principle) |
+
 ## Design notes
 
 - **Holder binding is per configuration**: the proof JWT's signature, nonce
   and audience are always verified. An SD-JWT configuration that lists `jwk`
   in `cryptographic_binding_methods_supported` gets the proof's public key as
-  `cnf.jwk`; without it the credential is a bearer credential. Some wallets
+  `cnf.jwk` (plus `cnf.kid` when the wallet named the key by a DID URL); without it the credential is a bearer credential. Some wallets
   (Procivis One) refuse unbound credentials, and some (Heidi) send no proof
   unless binding is advertised.
-- **Pre-1.0 proofs**: a singular `proof: { proof_type: "jwt", jwt }` is
-  accepted as well as the 1.0 `proofs.jwt` array.
 - **Proof algorithms come from the metadata**: `/credential` accepts only the
   algorithms the matching credential configuration advertises in
   `proof_signing_alg_values_supported`, falling back to a fixed asymmetric-only
