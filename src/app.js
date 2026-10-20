@@ -5,12 +5,12 @@ import { createTokenHandler } from './token.js'
 import { authorizeHandler } from './authorize.js'
 import { createNonceHandler } from './nonce.js'
 import { createCredentialHandler } from './credential.js'
-import { createAuthorizationServerMetadataHandler, createMetadataHandler } from './metadata.js'
+import { checkDisplay, createAuthorizationServerMetadataHandler, createMetadataHandler } from './metadata.js'
 import { requireCoordinatorToken } from './auth.js'
 import { createSigners } from './signers.js'
 import { createJwtVcIssuerHandler } from './jwt-vc-issuer.js'
 import { createDidDocumentHandler } from './did-web.js'
-import { checkFederationSetup, createEntityConfigurationHandler } from './federation.js'
+import { checkFederationSetup, createEntityConfigurationHandler, withDisplayDefaults } from './federation.js'
 
 // Builds the Express app from explicit config, without reading the
 // environment or listening on a port, so tests can start it on a random port
@@ -18,7 +18,12 @@ import { checkFederationSetup, createEntityConfigurationHandler } from './federa
 // vars. `signLdpVc` signs `ldp_vc` credentials (signing-service); `sdJwt`
 // ({ issuer, key }) signs SD-JWT credentials with this service's own key.
 // Throws if a configuration's format can't be served with what was given.
-export function createApp({ credentialIssuer, credentialConfigurationsSupported, coordinatorToken, signLdpVc, sdJwt, store = createStore(), logRequests = false, federation }) {
+// `display` is the issuer display for the issuer metadata (optional).
+export function createApp({ credentialIssuer, credentialConfigurationsSupported, coordinatorToken, signLdpVc, sdJwt, store = createStore(), logRequests = false, federation, display }) {
+  if (display !== undefined) {
+    const problem = checkDisplay(display)
+    if (problem) throw new Error(`Issuer metadata: ${problem}`)
+  }
   if (sdJwt) {
     let url
     try {
@@ -36,6 +41,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   // turns on the OpenID Federation Entity Configuration, and credentials
   // then carry `fed`.
   if (federation) {
+    federation = { ...federation, entityMetadata: withDisplayDefaults(federation.entityMetadata, display) }
     checkFederationSetup({ federation, sdJwt, credentialIssuer })
     sdJwt = { ...sdJwt, fed: credentialIssuer }
   }
@@ -55,7 +61,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
     credentialConfigurationsSupported,
     signCredential: signers.sign,
   })
-  const metadataHandler = createMetadataHandler({ credentialIssuer, credentialConfigurationsSupported })
+  const metadataHandler = createMetadataHandler({ credentialIssuer, credentialConfigurationsSupported, display })
   const authorizationServerMetadataHandler = createAuthorizationServerMetadataHandler({ credentialIssuer })
   const coordinatorAuth = requireCoordinatorToken(coordinatorToken)
 
@@ -72,7 +78,7 @@ export function createApp({ credentialIssuer, credentialConfigurationsSupported,
   if (federation) {
     app.get(
       '/.well-known/openid-federation',
-      createEntityConfigurationHandler({ credentialIssuer, credentialConfigurationsSupported, sdJwt, federation })
+      createEntityConfigurationHandler({ credentialIssuer, credentialConfigurationsSupported, display, sdJwt, federation })
     )
   }
   app.get('/instance/:tenant/offers/:code', getOffer)

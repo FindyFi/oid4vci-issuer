@@ -17,6 +17,7 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --test test/*.test.js",
+    "metadata:setup": "node scripts/issuer-metadata.js --write",
     "federation:setup": "node scripts/federation-metadata.js --write"
   },
   "dependencies": {
