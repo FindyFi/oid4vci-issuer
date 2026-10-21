@@ -9,6 +9,8 @@ version to pin.
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-10-21
+
 ### Added
 
 - Expiry for SD-JWT credentials: an offer may carry `validUntil` (an ISO 8601 date-time), and the
