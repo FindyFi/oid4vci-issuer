@@ -9,6 +9,11 @@ version to pin.
 
 ## [Unreleased]
 
+### Security
+
+- body-parser 2.4.0 ([GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828)): a
+  compressed request body with trailing bytes no longer crashes the service.
+
 ## [0.0.5] - 2026-10-21
 
 ### Added
