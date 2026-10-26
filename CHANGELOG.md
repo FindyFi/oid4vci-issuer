@@ -9,6 +9,8 @@ version to pin.
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-10-26
+
 ### Security
 
 - body-parser 2.4.0 ([GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828)): a
