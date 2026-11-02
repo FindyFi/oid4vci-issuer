@@ -21,7 +21,7 @@
     "federation:setup": "node scripts/federation-metadata.js --write"
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "3.1142.0",
+    "@aws-sdk/client-kms": "3.1159.0",
     "@peculiar/x509": "2.1.0",
     "@sd-jwt/core": "0.24.0",
     "@sd-jwt/crypto-nodejs": "0.19.0",
