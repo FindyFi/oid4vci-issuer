@@ -25,7 +25,7 @@
     "@peculiar/x509": "2.1.0",
     "@sd-jwt/core": "0.24.0",
     "@sd-jwt/crypto-nodejs": "0.19.0",
-    "dotenv": "^18.0.5",
+    "dotenv": "^18.0.9",
     "express": "^5.2.1",
     "jose": "^6.2.14",
     "reflect-metadata": "0.2.2"
