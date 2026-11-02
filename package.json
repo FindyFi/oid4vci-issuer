@@ -26,7 +26,7 @@
     "@sd-jwt/core": "0.24.0",
     "@sd-jwt/crypto-nodejs": "0.19.0",
     "dotenv": "^18.0.5",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "jose": "^6.2.14",
     "reflect-metadata": "0.2.2"
   },
