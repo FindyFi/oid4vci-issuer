@@ -9,6 +9,13 @@ version to pin.
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-11-04
+
+### Changed
+
+- Dependency updates: express 5.3.0, dotenv 18.0.9, jose 6.2.14, @sd-jwt/core 0.24.0,
+  @aws-sdk/client-kms 3.1159.0. CI uses actions/setup-node 7.1.0.
+
 ## [0.0.6] - 2026-10-26
 
 ### Security
