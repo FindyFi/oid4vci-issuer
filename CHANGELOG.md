@@ -9,6 +9,8 @@ version to pin.
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-11-05
+
 ### Changed
 
 - A proof of possession is required only for credential configurations that declare
