@@ -34,46 +34,15 @@ export function createCredentialHandler({
         .json({ error: 'invalid_credential_request', error_description: 'credential_configuration_id is required and must match the offer.' })
     }
 
-    // Section 8.2: request proofs live under the plural "proofs" object,
-    // keyed by proof type, each holding an array of proof values - not a
-    // singular "proof". This service only ever offers one credential
-    // instance per offer, so exactly one "jwt" proof is expected. Pre-1.0
-    // wallets (draft 13 and earlier) still send a singular
-    // { proof_type: "jwt", jwt }, which is accepted as the same thing.
-    const legacyProof = req.body?.proof
-    const jwtProofs = req.body?.proofs
-      ? req.body.proofs.jwt
-      : legacyProof?.proof_type === 'jwt' && typeof legacyProof.jwt === 'string'
-        ? [legacyProof.jwt]
-        : undefined
-    if (!Array.isArray(jwtProofs) || jwtProofs.length !== 1) {
-      return res.status(400).json({
-        error: 'invalid_credential_request',
-        error_description: 'Expected exactly one proof in proofs.jwt (batch issuance is not supported).',
-      })
-    }
-
-    // The algorithms accepted here are the ones this offer's credential
-    // configuration advertises in issuer metadata, so a wallet is held to
-    // exactly what it was told - and widening the metadata is the only way
-    // to widen what gets accepted.
-    const allowedAlgorithms =
-      credentialConfigurationsSupported[offer.credentialConfigurationId]?.proof_types_supported?.jwt
-        ?.proof_signing_alg_values_supported
-
-    let verified
-    try {
-      verified = await verifyProof({
-        proofJwt: jwtProofs[0],
-        expectedAudience: credentialIssuer,
-        allowedAlgorithms,
-      })
-    } catch (err) {
-      return res.status(400).json({ error: 'invalid_proof', error_description: err.message })
-    }
-
-    if (!consumeNonce(store, verified.payload.nonce)) {
-      return res.status(400).json({ error: 'invalid_nonce', error_description: 'Unknown, already-used, or expired nonce.' })
+    // A configuration asks for a proof by declaring proof_types_supported
+    // (Section 12.2.4); without it the credential is issued unbound, and a
+    // proof the wallet sends anyway is ignored.
+    const configuration = credentialConfigurationsSupported[offer.credentialConfigurationId]
+    let holder = {}
+    if (requiresProof(configuration)) {
+      const checked = await checkProof(req.body, { store, credentialIssuer, configuration })
+      if (checked.error) return res.status(400).json(checked.error)
+      holder = checked.holder
     }
 
     // Mark the offer consumed (single-use) and the access token spent before
@@ -87,8 +56,7 @@ export function createCredentialHandler({
 
     try {
       const credential = await signCredential(offer.credentialConfigurationId, offer.unsignedCredential, {
-        holderJwk: verified.holderJwk,
-        holderKid: verified.holderKid,
+        ...holder,
         disclosable: offer.disclosable,
         validUntil: offer.validUntil,
       })
@@ -102,4 +70,51 @@ export function createCredentialHandler({
       res.status(500).json({ error: 'issuance_failed', error_description: err.message })
     }
   }
+}
+
+export function requiresProof(configuration) {
+  return configuration?.proof_types_supported !== undefined
+}
+
+// Verifies the request's proof of possession. Returns `{ holder }` (the
+// proof's key, for binding) or `{ error }`, the body of a 400.
+async function checkProof(body, { store, credentialIssuer, configuration }) {
+  // Section 8.2: request proofs live under the plural "proofs" object,
+  // keyed by proof type, each holding an array of proof values - not a
+  // singular "proof". This service only ever offers one credential
+  // instance per offer, so exactly one "jwt" proof is expected. Pre-1.0
+  // wallets (draft 13 and earlier) still send a singular
+  // { proof_type: "jwt", jwt }, which is accepted as the same thing.
+  const legacyProof = body?.proof
+  const jwtProofs = body?.proofs
+    ? body.proofs.jwt
+    : legacyProof?.proof_type === 'jwt' && typeof legacyProof.jwt === 'string'
+      ? [legacyProof.jwt]
+      : undefined
+  if (!Array.isArray(jwtProofs) || jwtProofs.length !== 1) {
+    return {
+      error: {
+        error: 'invalid_credential_request',
+        error_description: 'Expected exactly one proof in proofs.jwt (batch issuance is not supported).',
+      },
+    }
+  }
+
+  // The algorithms accepted here are the ones this offer's credential
+  // configuration advertises in issuer metadata, so a wallet is held to
+  // exactly what it was told - and widening the metadata is the only way
+  // to widen what gets accepted.
+  const allowedAlgorithms = configuration.proof_types_supported?.jwt?.proof_signing_alg_values_supported
+
+  let verified
+  try {
+    verified = await verifyProof({ proofJwt: jwtProofs[0], expectedAudience: credentialIssuer, allowedAlgorithms })
+  } catch (err) {
+    return { error: { error: 'invalid_proof', error_description: err.message } }
+  }
+
+  if (!consumeNonce(store, verified.payload.nonce)) {
+    return { error: { error: 'invalid_nonce', error_description: 'Unknown, already-used, or expired nonce.' } }
+  }
+  return { holder: { holderJwk: verified.holderJwk, holderKid: verified.holderKid } }
 }

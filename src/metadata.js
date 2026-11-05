@@ -8,8 +8,9 @@ export function issuerMetadata({ credentialIssuer, credentialConfigurationsSuppo
     credential_endpoint: `${credentialIssuer}/credential`,
     token_endpoint: `${credentialIssuer}/token`,
     // Required whenever a credential_configurations_supported entry
-    // declares proof_types_supported (OID4VCI 1.0 Section 12.2.4) - this
-    // service always requires a proof, so it always advertises this.
+    // declares proof_types_supported (OID4VCI 1.0 Section 12.2.4). Advertised
+    // even when none does: a wallet that always proves can still get a
+    // nonce, and the proof is then ignored (src/credential.js).
     nonce_endpoint: `${credentialIssuer}/nonce`,
     // Where a wallet says whether it stored the credential (section 11).
     notification_endpoint: `${credentialIssuer}/notification`,

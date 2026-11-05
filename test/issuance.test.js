@@ -11,10 +11,14 @@ const CONFIG_ID = 'OpenBadgeCredential'
 const SD_JWT_CONFIG_ID = 'OpenBadgeCredentialSdJwt'
 const DC_CONFIG_ID = 'OpenBadgeCredentialSdJwtVc'
 const VCT = `${ISSUER}/vct/OpenBadgeCredential`
+const UNBOUND_CONFIG_ID = 'OpenBadgeCredentialUnbound'
+const UNBOUND_DC_CONFIG_ID = 'OpenBadgeCredentialSdJwtVcUnbound'
+const PROOF_TYPES = { jwt: { proof_signing_alg_values_supported: ['ES256'] } }
 const DC_CONFIG = {
   format: 'dc+sd-jwt',
   vct: VCT,
   cryptographic_binding_methods_supported: ['jwk'],
+  proof_types_supported: PROOF_TYPES,
   credential_metadata: { display: [{ name: 'Opintosuoritus', locale: 'fi', description: 'Open Badge' }, { name: 'Study record', locale: 'en' }] },
 }
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
@@ -27,7 +31,14 @@ const signed = []
 before(async () => {
   const app = createApp({
     credentialIssuer: ISSUER,
-    credentialConfigurationsSupported: { [CONFIG_ID]: { format: 'ldp_vc' }, [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt' }, [DC_CONFIG_ID]: DC_CONFIG },
+    credentialConfigurationsSupported: {
+      [CONFIG_ID]: { format: 'ldp_vc', proof_types_supported: PROOF_TYPES },
+      [SD_JWT_CONFIG_ID]: { format: 'vc+sd-jwt', proof_types_supported: PROOF_TYPES },
+      [DC_CONFIG_ID]: DC_CONFIG,
+      // No proof_types_supported: issued without a proof, unbound.
+      [UNBOUND_CONFIG_ID]: { format: 'ldp_vc' },
+      [UNBOUND_DC_CONFIG_ID]: { format: 'dc+sd-jwt', vct: VCT },
+    },
     coordinatorToken: COORDINATOR_TOKEN,
     // Stub signing-service: records what it was asked to sign and returns a fake proof.
     signLdpVc: async (vc) => {
@@ -460,6 +471,55 @@ test('a bad validUntil is rejected with 400', async () => {
 test('vc+sd-jwt binds the holder only when its configuration lists jwk', async () => {
   const sdJwt = await issueSdJwt()
   assert.equal('cnf' in decodeJwtPayload(sdJwt), false)
+})
+
+// Fetches offer -> token, then asks for the credential with `body` as the
+// whole request (no proof unless `body` has one).
+async function redeemWithoutProof(configId, unsigned, body = { credential_configuration_id: configId }) {
+  const { res, body: created } = await createOffer({ credentialConfigurationId: configId, unsignedCredential: unsigned })
+  assert.equal(res.status, 200, JSON.stringify(created))
+  const offer = await (await fetch(`${base}/instance/t1/offers/${created.preAuthorizedCode}`)).json()
+  const token = await (
+    await fetch(`${base}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: GRANT_TYPE, 'pre-authorized_code': offer.grants[GRANT_TYPE]['pre-authorized_code'] }),
+    })
+  ).json()
+  return fetch(`${base}/credential`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token.access_token}` },
+    body: JSON.stringify(body),
+  })
+}
+
+test('ldp_vc without proof_types_supported is issued without a proof', async () => {
+  const res = await redeemWithoutProof(UNBOUND_CONFIG_ID, unsignedCredential)
+  assert.equal(res.status, 200)
+  assert.deepEqual((await res.json()).credentials[0].credential, { ...unsignedCredential, proof: { type: 'DataIntegrityProof' } })
+  assert.deepEqual(signed.at(-1), unsignedCredential)
+})
+
+test('a proof sent for a configuration that asks for none is ignored, even an invalid one', async () => {
+  const res = await redeemWithoutProof(UNBOUND_CONFIG_ID, unsignedCredential, {
+    credential_configuration_id: UNBOUND_CONFIG_ID,
+    proofs: { jwt: ['not-a-jwt'] },
+  })
+  assert.equal(res.status, 200)
+})
+
+test('dc+sd-jwt without proof_types_supported is issued without a proof and has no cnf', async () => {
+  const res = await redeemWithoutProof(UNBOUND_DC_CONFIG_ID, dcClaims)
+  assert.equal(res.status, 200)
+  const payload = decodeJwtPayload((await res.json()).credentials[0].credential)
+  assert.equal('cnf' in payload, false)
+  assert.equal(payload.vct, VCT)
+})
+
+test('a configuration that declares proof_types_supported still requires a proof', async () => {
+  const res = await redeemWithoutProof(DC_CONFIG_ID, dcClaims)
+  assert.equal(res.status, 400)
+  assert.equal((await res.json()).error, 'invalid_credential_request')
 })
 
 function decodeJwtPayload(sdJwt) {

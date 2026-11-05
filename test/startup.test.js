@@ -59,6 +59,15 @@ test('dc+sd-jwt without a vct fails at startup', async () => {
   assert.throws(() => createApp({ ...base, credentialConfigurationsSupported: { A: { format: 'dc+sd-jwt' } }, sdJwt }), /needs a vct/)
 })
 
+test('an SD-JWT configuration that binds the holder but asks for no proof fails at startup', async () => {
+  const key = await loadSigningKey('generate')
+  const configuration = { format: 'dc+sd-jwt', vct: 'https://issuer.example/vct', cryptographic_binding_methods_supported: ['jwk'] }
+  assert.throws(
+    () => createApp({ ...base, credentialConfigurationsSupported: { A: configuration }, sdJwt: { issuer: base.credentialIssuer, key } }),
+    /proof_types_supported must be declared/
+  )
+})
+
 test('loadX5c generates a self-signed certificate for the signing key, naming the issuer', async () => {
   const key = await loadSigningKey('generate')
   const [der, ...rest] = await loadX5c('generate', { issuer: 'https://issuer.example', key })

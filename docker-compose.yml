@@ -28,7 +28,7 @@ services:
       # here - wallets cannot resolve .well-known discovery against
       # localhost. See README.
       CREDENTIAL_ISSUER: http://localhost:4007
-      CREDENTIAL_CONFIGURATIONS_SUPPORTED: '{"OpenBadgeCredential":{"format":"ldp_vc","credential_definition":{"@context":["https://www.w3.org/2018/credentials/v1","https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"],"type":["VerifiableCredential","OpenBadgeCredential"]},"proof_types_supported":{"jwt":{"proof_signing_alg_values_supported":["ES256"]}}}}'
+      CREDENTIAL_CONFIGURATIONS_SUPPORTED: '{"OpenBadgeCredential":{"format":"ldp_vc","credential_definition":{"@context":["https://www.w3.org/2018/credentials/v1","https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"],"type":["VerifiableCredential","OpenBadgeCredential"]}}}'
       SIGNING_SERVICE_URL: http://signing-service:4006
       SIGNING_SERVICE_INSTANCE: test
       SIGNING_SERVICE_SUITE: ed25519

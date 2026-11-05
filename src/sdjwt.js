@@ -34,6 +34,10 @@ export function checkSdJwtConfiguration(configuration) {
   if (configuration.format === DC_SD_JWT && typeof configuration.vct !== 'string') {
     return 'a dc+sd-jwt configuration needs a vct.'
   }
+  // The bound key comes from the proof, so binding needs a proof to be asked for.
+  if (bindsHolder(configuration) && configuration.proof_types_supported === undefined) {
+    return 'cryptographic_binding_methods_supported lists jwk, so proof_types_supported must be declared too.'
+  }
 }
 
 // Checks an unsigned credential at offer creation, so a coordinator learns

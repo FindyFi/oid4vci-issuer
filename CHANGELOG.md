@@ -9,6 +9,14 @@ version to pin.
 
 ## [Unreleased]
 
+### Changed
+
+- A proof of possession is required only for credential configurations that declare
+  `proof_types_supported`. Without it the credential is issued unbound and a proof the wallet sends
+  is ignored. The example `ldp_vc` configurations (`.env.example`, `docker-compose.yml`) no longer
+  ask for a proof, since the `ldp_vc` credential was never bound to the proof key. An SD-JWT
+  configuration listing `jwk` binding without `proof_types_supported` stops the service at startup.
+
 ## [0.0.7] - 2026-11-04
 
 ### Changed

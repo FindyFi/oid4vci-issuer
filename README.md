@@ -75,7 +75,7 @@ optional only because they matter just for `ldp_vc`; set all three wherever
 | Variable | Needed | Meaning |
 |----------|--------|---------|
 | `CREDENTIAL_ISSUER` | always | This service's own public HTTPS base URL. |
-| `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | always | JSON map of configuration id → OID4VCI configuration. Each entry should declare `proof_types_supported`, since that's what makes 1.0 require a proof, and therefore the Nonce Endpoint, for that credential type. |
+| `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | always | JSON map of configuration id → OID4VCI configuration. An entry that declares `proof_types_supported` requires a proof of possession, and one that doesn't is issued without one (see below). |
 | `SD_JWT_SIGNING_KEY` | if a configuration has format `dc+sd-jwt` or `vc+sd-jwt` | `kms:<key ARN>` (an AWS KMS key, ECC_NIST_P256 / SIGN_VERIFY; use this in production), a private EC P-256 JWK as JSON, or `generate` (dev only: a fresh key on every start, so earlier credentials stop verifying). The `kid` is always the key's RFC 7638 thumbprint. |
 | `SD_JWT_PREVIOUS_KEYS` | no | After a key rotation: a JSON array of the earlier keys' **public** JWKs. They stay in `/.well-known/jwt-vc-issuer` after the current key, so credentials they signed keep verifying. See "Production keys" below. |
 | `SD_JWT_X5C` | no | An X.509 chain for the SD-JWT signing key, as PEM (leaf first), or `generate` (dev only: a self-signed certificate made on every start). When set, SD-JWT headers also carry `x5c`, for wallets that find the issuer key only from a certificate (Credo-based ones such as Paradym). The leaf must hold the signing key and name the issuer in its subjectAltName (URI = the issuer URL, or DNS = its host). `iss` stays the HTTPS URL, and `/.well-known/jwt-vc-issuer` is still served. `scripts/self-signed-x5c.js` makes a stored one. |
@@ -164,6 +164,13 @@ the configuration: if the fetched hash differs, the service refuses to start,
 and if the fetch fails it starts with the pinned value and logs a warning.
 Unpinned (dev), a failed fetch means credentials are issued without
 `vct#integrity`, with a warning. Coordinators must not send `vct#integrity`.
+
+Leaving out `proof_types_supported` and `cryptographic_binding_methods_supported`
+makes a configuration issue unbound (bearer) credentials: the wallet sends no
+proof, and the SD-JWT has no `cnf`. Listing `jwk` binding without
+`proof_types_supported` stops the service at startup, since the bound key
+comes from the proof. The default `ldp_vc` configuration asks for no proof,
+since signing-service doesn't bind the credential to a key anyway.
 
 A VCDM 2.0 SD-JWT configuration looks like this:
 
@@ -411,9 +418,10 @@ Wallet-facing (public):
   does **not** include `c_nonce` — get that from `/nonce` instead.
 - `POST /nonce` — Section 7. Unauthenticated (not a protected resource, per
   spec), empty request body, returns `{ c_nonce }`.
-- `POST /credential` — body must include a matching `credential_configuration_id`
-  and a `proofs` object (plural, per Section 8.2 — `{"proofs":{"jwt":["<jwt>"]}}`,
-  not a singular `proof`). This service only supports exactly one proof per
+- `POST /credential` — body must include a matching `credential_configuration_id`.
+  If the credential configuration declares `proof_types_supported`, it must
+  also include a `proofs` object (plural, per Section 8.2 — `{"proofs":{"jwt":["<jwt>"]}}`,
+  not a singular `proof`); otherwise any proof sent is ignored. This service only supports exactly one proof per
   request (one offer = one credential instance, no batch issuance). Verifies
   the proof JWT (signature against the key in its `jwk` header or `did:jwk`
   `kid`, `aud`, `typ: openid4vci-proof+jwt`, and that its
@@ -489,7 +497,7 @@ For a testing environment, the configuration that actually matters:
 | `CREDENTIAL_ISSUER` | Must be the real public HTTPS URL of *this* service. Wallets resolve `.well-known` discovery and check the proof audience against it, so `localhost` or an internal hostname will not work. |
 | `COORDINATOR_TOKEN` | Must be set, and must match the coordinator's `OID4VCI_ISSUER_TOKEN`. Without it, anyone who can reach the offer endpoint can have arbitrary content signed by your key. |
 | `SIGNING_SERVICE_INSTANCE` | Must name an instance the signing-service actually has a seed for, or issuance fails at the last step of the flow. |
-| `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | Must declare `proof_types_supported`. It is now also what constrains which proof signing algorithms are accepted, so metadata and enforcement cannot drift apart. |
+| `CREDENTIAL_CONFIGURATIONS_SUPPORTED` | Declare `proof_types_supported` for each configuration that should require a proof. It is now also what constrains which proof signing algorithms are accepted, so metadata and enforcement cannot drift apart. |
 
 Note that offers, tokens and nonces are held in memory (see
 [Design notes](#design-notes)), so a deployed instance should run as a single
@@ -522,8 +530,9 @@ Each tolerance names the wallet that needed it, and has a test named after that 
 
 ## Design notes
 
-- **Holder binding is per configuration**: the proof JWT's signature, nonce
-  and audience are always verified. An SD-JWT configuration that lists `jwk`
+- **Proofs and holder binding are per configuration**: a configuration with
+  `proof_types_supported` gets the proof JWT's signature, nonce and audience
+  verified; one without it is issued without a proof. An SD-JWT configuration that lists `jwk`
   in `cryptographic_binding_methods_supported` gets the proof's public key as
   `cnf.jwk` (plus `cnf.kid` when the wallet named the key by a DID URL); without it the credential is a bearer credential. Some wallets
   (Procivis One) refuse unbound credentials, and some (Heidi) send no proof
